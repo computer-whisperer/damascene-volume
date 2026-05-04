@@ -1,0 +1,11 @@
+[package]
+name = "aetna-volume"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aetna-core = { path = "../aetna/aetna.main/crates/aetna-core" }
+aetna-demo = { path = "../aetna/aetna.main/crates/aetna-demo" }
+anyhow = "1"
+pipewire = "0.9.2"
+serde = { version = "1", features = ["derive"] }
