@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use aetna_core::*;
 use aetna_volume::{
     backend::{AudioBackend, pipewire_native::PipeWireBackend},
+    levels::{LevelService, NodeLevels},
     model::{AudioCard, AudioNode, AudioSnapshot, Tab, Volume},
 };
 
@@ -15,16 +16,20 @@ struct VolumeApp {
     snapshot: AudioSnapshot,
     active_tab: Tab,
     volume_overrides: HashMap<u32, u32>,
+    levels: LevelService,
 }
 
 impl VolumeApp {
     fn new(mut backend: Box<dyn AudioBackend>) -> Self {
         let snapshot = backend.refresh();
+        let mut levels = LevelService::new();
+        levels.ensure_snapshot(&snapshot);
         Self {
             backend,
             snapshot,
             active_tab: Tab::Playback,
             volume_overrides: HashMap::new(),
+            levels,
         }
     }
 
@@ -88,7 +93,7 @@ impl App for VolumeApp {
             ])
             .gap(tokens::SPACE_LG)
             .height(Size::Fill(1.0)),
-            status_bar(&self.snapshot),
+            status_bar(&self.snapshot, self.levels.active_meter_count()),
         ])
         .gap(tokens::SPACE_LG)
         .padding(tokens::SPACE_LG)
@@ -108,6 +113,7 @@ impl App for VolumeApp {
                 } else if key == "refresh" {
                     self.snapshot = self.backend.refresh();
                     self.volume_overrides.clear();
+                    self.levels.ensure_snapshot(&self.snapshot);
                 } else if let Some(id) = node_id_from_key(key, "mute:") {
                     self.toggle_mute(id);
                 } else if let Some(id) = node_id_from_key(key, "volume:") {
@@ -121,6 +127,10 @@ impl App for VolumeApp {
             }
             _ => {}
         }
+    }
+
+    fn frame_interval(&self) -> Option<Duration> {
+        Some(Duration::from_millis(33))
     }
 }
 
@@ -175,7 +185,14 @@ fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
     } else {
         nodes
             .into_iter()
-            .map(|node| node_row(node, app.percent_for(node), app.muted_for(node)))
+            .map(|node| {
+                node_row(
+                    node,
+                    app.percent_for(node),
+                    app.muted_for(node),
+                    app.levels.level_for(node.id),
+                )
+            })
             .collect()
     };
 
@@ -214,7 +231,7 @@ fn panel_title(title: &'static str, subtitle: &'static str) -> El {
     .width(Size::Fill(1.0))
 }
 
-fn node_row(node: &AudioNode, volume: u32, muted: bool) -> El {
+fn node_row(node: &AudioNode, volume: u32, muted: bool, levels: Option<NodeLevels>) -> El {
     let title = node
         .application
         .as_deref()
@@ -249,21 +266,22 @@ fn node_row(node: &AudioNode, volume: u32, muted: bool) -> El {
         ])
         .gap(tokens::SPACE_XS)
         .width(Size::Fill(1.0)),
-        volume_slider(node.id, volume, muted).width(Size::Fixed(220.0)),
+        activity_meter(levels.as_ref(), muted).width(Size::Fixed(98.0)),
+        volume_slider(node.id, volume, muted).width(Size::Fixed(180.0)),
         text(format!("{volume}%"))
             .mono()
             .label()
-            .width(Size::Fixed(56.0)),
+            .width(Size::Fixed(50.0)),
         button(if muted { "Unmute" } else { "Mute" })
             .secondary()
             .key(format!("mute:{}", node.id))
-            .width(Size::Fixed(86.0)),
+            .width(Size::Fixed(82.0)),
     ])
     .gap(tokens::SPACE_MD)
     .align(Align::Center)
     .padding(tokens::SPACE_MD)
     .width(Size::Fill(1.0))
-    .height(Size::Fixed(84.0))
+    .height(Size::Fixed(88.0))
     .fill(tokens::BG_CARD)
     .stroke(tokens::BORDER)
     .radius(tokens::RADIUS_MD)
@@ -352,6 +370,86 @@ fn volume_slider(id: u32, percent: u32, muted: bool) -> El {
     .width(Size::Fill(1.0))
 }
 
+fn activity_meter(levels: Option<&NodeLevels>, muted: bool) -> El {
+    let channels = levels
+        .map(|levels| levels.channel_count().clamp(1, 2))
+        .unwrap_or(2);
+    column(
+        (0..channels)
+            .map(|channel| {
+                let label = match (channels, channel) {
+                    (1, _) => "M",
+                    (_, 0) => "L",
+                    (_, 1) => "R",
+                    _ => "",
+                };
+                meter_channel(
+                    label,
+                    levels.map(|l| l.peak(channel)).unwrap_or(0.0),
+                    levels.map(|l| l.rms(channel)).unwrap_or(0.0),
+                    muted,
+                )
+            })
+            .collect::<Vec<_>>(),
+    )
+    .gap(4.0)
+    .width(Size::Fill(1.0))
+}
+
+fn meter_channel(label: &'static str, peak: f32, rms: f32, muted: bool) -> El {
+    row([
+        text(label)
+            .caption()
+            .mono()
+            .muted()
+            .width(Size::Fixed(12.0)),
+        meter_bar(peak, rms, muted).width(Size::Fill(1.0)),
+    ])
+    .gap(5.0)
+    .align(Align::Center)
+    .width(Size::Fill(1.0))
+    .height(Size::Fixed(8.0))
+}
+
+fn meter_bar(peak: f32, rms: f32, muted: bool) -> El {
+    let peak = level_to_meter(peak);
+    let rms = level_to_meter(rms);
+    let fill = if muted {
+        tokens::TEXT_MUTED_FOREGROUND
+    } else {
+        tokens::SUCCESS
+    };
+    stack([
+        El::new(Kind::Custom("activity-track"))
+            .fill(tokens::BG_MUTED)
+            .radius(tokens::RADIUS_PILL),
+        El::new(Kind::Custom("activity-rms"))
+            .fill(fill.with_alpha(70))
+            .radius(tokens::RADIUS_PILL),
+        El::new(Kind::Custom("activity-peak"))
+            .fill(fill)
+            .radius(tokens::RADIUS_PILL),
+    ])
+    .layout(move |ctx| {
+        let rect = ctx.container;
+        vec![
+            rect,
+            Rect::new(rect.x, rect.y, rect.w * rms, rect.h),
+            Rect::new(rect.x, rect.y, rect.w * peak, rect.h),
+        ]
+    })
+    .height(Size::Fixed(6.0))
+    .width(Size::Fill(1.0))
+}
+
+fn level_to_meter(value: f32) -> f32 {
+    if value <= 0.000_1 {
+        0.0
+    } else {
+        ((20.0 * value.log10() + 60.0) / 60.0).clamp(0.0, 1.0)
+    }
+}
+
 fn node_id_from_key(key: &str, prefix: &str) -> Option<u32> {
     key.strip_prefix(prefix)?.parse().ok()
 }
@@ -396,12 +494,13 @@ fn empty_state(tab: Tab) -> El {
     .radius(tokens::RADIUS_MD)
 }
 
-fn status_bar(snapshot: &AudioSnapshot) -> El {
+fn status_bar(snapshot: &AudioSnapshot, meter_count: usize) -> El {
     row([
         text(format!(
-            "{} nodes, {} cards",
+            "{} nodes, {} cards, {} meters",
             snapshot.nodes.len(),
-            snapshot.cards.len()
+            snapshot.cards.len(),
+            meter_count
         ))
         .caption()
         .muted()

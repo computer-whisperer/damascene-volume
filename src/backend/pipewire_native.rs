@@ -97,6 +97,9 @@ where
         return None;
     }
     let props = global.props.as_ref()?.as_ref();
+    if is_internal_aetna_node(props) {
+        return None;
+    }
     let media_class = prop(props, "media.class")?;
     let class = match media_class {
         "Audio/Sink" => AudioClass::Device {
@@ -173,4 +176,13 @@ fn prop<'a>(props: &'a pw::spa::utils::dict::DictRef, key: &str) -> Option<&'a s
     props
         .iter()
         .find_map(|(k, v)| if k == key { Some(v) } else { None })
+}
+
+fn is_internal_aetna_node(props: &pw::spa::utils::dict::DictRef) -> bool {
+    prop(props, "node.name")
+        .map(|name| name.starts_with("aetna-volume.meter."))
+        .unwrap_or(false)
+        || prop(props, "application.name")
+            .map(|name| name == "aetna-volume")
+            .unwrap_or(false)
 }
