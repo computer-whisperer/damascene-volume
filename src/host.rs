@@ -4,7 +4,9 @@ use std::{
 };
 
 use aetna_core::{App, KeyModifiers, PointerButton, Rect, UiKey};
-use aetna_wgpu::Runner;
+use aetna_wgpu::{MsaaTarget, Runner};
+
+const SAMPLE_COUNT: u32 = 4;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -52,6 +54,17 @@ struct Gfx {
     device: wgpu::Device,
     window: Arc<Window>,
     config: wgpu::SurfaceConfiguration,
+    /// Multisampled color attachment for the surface frame, kept in
+    /// sync with `config.width`/`config.height`. Reallocated on resize.
+    msaa: MsaaTarget,
+}
+
+fn surface_extent(config: &wgpu::SurfaceConfiguration) -> wgpu::Extent3d {
+    wgpu::Extent3d {
+        width: config.width,
+        height: config.height,
+        depth_or_array_layers: 1,
+    }
 }
 
 impl<A: App> ApplicationHandler for VolumeHost<A> {
@@ -110,7 +123,7 @@ impl<A: App> ApplicationHandler for VolumeHost<A> {
         };
         surface.configure(&device, &config);
 
-        let mut renderer = Runner::new(&device, &queue, format);
+        let mut renderer = Runner::with_sample_count(&device, &queue, format, SAMPLE_COUNT);
         renderer.set_theme(self.app.theme());
         renderer.set_surface_size(config.width, config.height);
         for shader in self.app.shaders() {
@@ -122,6 +135,8 @@ impl<A: App> ApplicationHandler for VolumeHost<A> {
             );
         }
 
+        let msaa = MsaaTarget::new(&device, format, surface_extent(&config), SAMPLE_COUNT);
+
         self.gfx = Some(Gfx {
             renderer,
             surface,
@@ -129,6 +144,7 @@ impl<A: App> ApplicationHandler for VolumeHost<A> {
             device,
             window,
             config,
+            msaa,
         });
         self.next_meter_frame = Instant::now() + METER_FRAME_INTERVAL;
         self.gfx.as_ref().unwrap().window.request_redraw();
@@ -154,6 +170,15 @@ impl<A: App> ApplicationHandler for VolumeHost<A> {
                         gfx.surface.configure(&gfx.device, &gfx.config);
                         gfx.renderer
                             .set_surface_size(gfx.config.width, gfx.config.height);
+                        let extent = surface_extent(&gfx.config);
+                        if !gfx.msaa.matches(extent) {
+                            gfx.msaa = MsaaTarget::new(
+                                &gfx.device,
+                                gfx.config.format,
+                                extent,
+                                SAMPLE_COUNT,
+                            );
+                        }
                         gfx.window.request_redraw();
                     }
 
@@ -290,6 +315,7 @@ impl<A: App> ApplicationHandler for VolumeHost<A> {
                             &mut encoder,
                             &frame.texture,
                             &view,
+                            Some(&gfx.msaa.view),
                             wgpu::LoadOp::Clear(bg_color()),
                         );
                         gfx.queue.submit(Some(encoder.finish()));
