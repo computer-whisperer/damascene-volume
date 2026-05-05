@@ -160,12 +160,8 @@ impl App for VolumeApp {
 
         column([
             header(&snapshot),
-            row([
-                sidebar(self.active_tab),
-                content.width(Size::Fill(1.0)).height(Size::Fill(1.0)),
-            ])
-            .gap(tokens::SPACE_LG)
-            .height(Size::Fill(1.0)),
+            tab_bar(self.active_tab),
+            content.width(Size::Fill(1.0)).height(Size::Fill(1.0)),
             status_bar(&snapshot, self.levels.borrow().active_meter_count()),
         ])
         .gap(tokens::SPACE_LG)
@@ -227,28 +223,22 @@ fn header(snapshot: &AudioSnapshot) -> El {
     .width(Size::Fill(1.0))
 }
 
-fn sidebar(active: Tab) -> El {
-    column(
-        Tab::ALL
-            .into_iter()
-            .map(|tab| {
-                let mut item = button(tab.label()).key(tab.key()).width(Size::Fill(1.0));
-                if tab == active {
-                    item = item.primary();
-                } else {
-                    item = item.ghost();
-                }
-                item
-            })
-            .collect::<Vec<_>>(),
-    )
+fn tab_bar(active: Tab) -> El {
+    row(Tab::ALL
+        .into_iter()
+        .map(|tab| {
+            let mut item = button(tab.label()).key(tab.key());
+            if tab == active {
+                item = item.primary();
+            } else {
+                item = item.ghost();
+            }
+            item
+        })
+        .collect::<Vec<_>>())
     .gap(tokens::SPACE_XS)
-    .padding(tokens::SPACE_SM)
-    .width(Size::Fixed(190.0))
-    .height(Size::Fill(1.0))
-    .fill(tokens::BG_CARD)
-    .stroke(tokens::BORDER)
-    .radius(tokens::RADIUS_MD)
+    .width(Size::Fill(1.0))
+    .height(Size::Hug)
 }
 
 fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
@@ -329,17 +319,7 @@ fn node_row(
     let target = node.target.as_deref().unwrap_or("No route");
     let is_device = matches!(node.class, AudioClass::Device { .. });
 
-    let default_action: El = if !is_device {
-        text("").width(Size::Fixed(0.0))
-    } else if is_default {
-        badge("default")
-    } else {
-        button("Set Default")
-            .secondary()
-            .key(format!("default:{}", node.id))
-    };
-
-    row([
+    let mut children: Vec<El> = vec![
         icon(if muted { "x" } else { "activity" })
             .icon_size(20.0)
             .text_color(if muted {
@@ -349,9 +329,13 @@ fn node_row(
             })
             .width(Size::Fixed(32.0)),
         column([
-            row([text(title).label().width(Size::Fill(1.0)), default_action])
-                .gap(tokens::SPACE_SM)
-                .align(Align::Center),
+            // Title ellipsizes when the device/app name is long enough
+            // to overrun the column (real PipeWire descriptions like
+            // "Family 17h/19h/1ah HD Audio Controller Analog Stereo"
+            // would otherwise spill into the meter and badge columns).
+            // .ellipsis() only takes effect when the box is constrained,
+            // hence Fill width on a column that itself has Fill width.
+            text(title).label().ellipsis().width(Size::Fill(1.0)),
             text(format!("#{id}  {target}", id = node.id))
                 .caption()
                 .muted()
@@ -372,15 +356,35 @@ fn node_row(
             .secondary()
             .key(format!("mute:{}", node.id))
             .width(Size::Fixed(82.0)),
-    ])
-    .gap(tokens::SPACE_MD)
-    .align(Align::Center)
-    .padding(tokens::SPACE_MD)
-    .width(Size::Fill(1.0))
-    .height(Size::Fixed(88.0))
-    .fill(tokens::BG_CARD)
-    .stroke(tokens::BORDER)
-    .radius(tokens::RADIUS_MD)
+    ];
+
+    // Default-device action lives in its own column at the right edge
+    // of the row (only for devices). Fixed width so the badge variant
+    // and the "Set Default" variant occupy the same horizontal slot —
+    // otherwise their differing intrinsic widths shift the Mute button
+    // and break vertical alignment between rows.
+    if is_device {
+        children.push(
+            if is_default {
+                default_indicator()
+            } else {
+                button("Set Default")
+                    .secondary()
+                    .key(format!("default:{}", node.id))
+            }
+            .width(Size::Fixed(100.0)),
+        );
+    }
+
+    row(children)
+        .gap(tokens::SPACE_MD)
+        .align(Align::Center)
+        .padding(tokens::SPACE_MD)
+        .width(Size::Fill(1.0))
+        .height(Size::Fixed(88.0))
+        .fill(tokens::BG_CARD)
+        .stroke(tokens::BORDER)
+        .radius(tokens::RADIUS_MD)
 }
 
 fn card_row(card: &AudioCard, active_profile: Option<u32>) -> El {
@@ -430,13 +434,21 @@ fn card_row(card: &AudioCard, active_profile: Option<u32>) -> El {
 fn profile_row(card_id: u32, profile: &AudioProfile, active: Option<u32>) -> El {
     let is_active = active == Some(profile.index);
     let unavailable = profile.available == ProfileAvailability::No;
-    let mut btn = button(profile.description.as_str())
+    let label = if unavailable {
+        format!("{} · unavailable", profile.description)
+    } else {
+        profile.description.clone()
+    };
+    let mut btn = button(label)
         .key(format!("profile:{card_id}:{idx}", idx = profile.index))
         .width(Size::Fill(1.0));
     btn = if is_active {
         btn.primary()
     } else if unavailable {
-        btn.ghost()
+        // Outline border with muted text so the row reads as disabled
+        // but still occupies a button-shaped slot. Plain ghost dropped
+        // the surface entirely and the row looked like missing UI.
+        btn.outline().text_color(tokens::TEXT_MUTED_FOREGROUND)
     } else {
         btn.secondary()
     };
@@ -558,6 +570,16 @@ fn badge(label: impl Into<String>) -> El {
         .fill(tokens::BG_MUTED)
         .stroke(tokens::BORDER)
         .radius(tokens::RADIUS_PILL)
+}
+
+/// Read-only "this is the default" indicator placed in the device-row
+/// action slot. Distinct from the pill `badge()` so the user doesn't
+/// mistake it for a clickable button.
+fn default_indicator() -> El {
+    text("✓ default")
+        .label()
+        .center_text()
+        .text_color(tokens::PRIMARY)
 }
 
 fn empty_state(tab: Tab) -> El {

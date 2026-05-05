@@ -144,10 +144,16 @@ impl AudioSnapshot {
 
 impl AudioSnapshot {
     pub fn demo() -> Self {
+        // Names sized to real-world PipeWire output: motherboard/GPU/USB
+        // device descriptions are long, profile descriptions can be very
+        // long. The fixture exists to expose layout breakage that short
+        // synthetic strings would hide.
         Self {
-            server_name: Some("PipeWire".into()),
+            server_name: Some("PipeWire 1.2.7".into()),
             default_sink_name: Some("alsa_output.pci-0000_0b_00.4.analog-stereo".into()),
-            default_source_name: Some("alsa_input.usb-mic.mono-fallback".into()),
+            default_source_name: Some(
+                "alsa_input.usb-Razer_Razer_Seiren_X-00.analog-stereo".into(),
+            ),
             nodes: vec![
                 AudioNode {
                     id: 42,
@@ -155,12 +161,27 @@ impl AudioSnapshot {
                         direction: Direction::Output,
                     },
                     name: "alsa_output.pci-0000_0b_00.4.analog-stereo".into(),
-                    description: "Starship Speakers".into(),
+                    description: "Family 17h/19h/1ah HD Audio Controller Analog Stereo".into(),
                     application: None,
                     media_name: None,
-                    target: Some("Analog Stereo".into()),
+                    target: Some("Analog Stereo Duplex".into()),
                     volume: Some(Volume {
                         scalar: 0.64,
+                        muted: false,
+                    }),
+                },
+                AudioNode {
+                    id: 48,
+                    class: AudioClass::Device {
+                        direction: Direction::Output,
+                    },
+                    name: "alsa_output.pci-0000_0a_00.1.hdmi-stereo".into(),
+                    description: "Navi 21 HDMI Audio [Radeon RX 6800/6800 XT / 6900 XT] Digital Stereo (HDMI 3)".into(),
+                    application: None,
+                    media_name: None,
+                    target: Some("Digital Stereo (HDMI 3)".into()),
+                    volume: Some(Volume {
+                        scalar: 1.0,
                         muted: false,
                     }),
                 },
@@ -172,8 +193,10 @@ impl AudioSnapshot {
                     name: "Firefox".into(),
                     description: "Firefox".into(),
                     application: Some("Firefox".into()),
-                    media_name: Some("Video playback".into()),
-                    target: Some("Starship Speakers".into()),
+                    media_name: Some("YouTube — Mozart Symphony No. 40 in G minor".into()),
+                    target: Some(
+                        "Family 17h/19h/1ah HD Audio Controller Analog Stereo".into(),
+                    ),
                     volume: Some(Volume {
                         scalar: 0.82,
                         muted: false,
@@ -186,12 +209,31 @@ impl AudioSnapshot {
                     },
                     name: "Discord".into(),
                     description: "Discord".into(),
-                    application: Some("Discord".into()),
-                    media_name: Some("Voice call".into()),
-                    target: Some("Starship Speakers".into()),
+                    application: Some("WEBRTC VoiceEngine".into()),
+                    media_name: Some("Voice call (#general)".into()),
+                    target: Some(
+                        "Family 17h/19h/1ah HD Audio Controller Analog Stereo".into(),
+                    ),
                     volume: Some(Volume {
                         scalar: 0.48,
                         muted: true,
+                    }),
+                },
+                AudioNode {
+                    id: 64,
+                    class: AudioClass::Stream {
+                        direction: Direction::Output,
+                    },
+                    name: "ALSA plug-in [steam_app_2369390]".into(),
+                    description: "ALSA plug-in [steam_app_2369390]".into(),
+                    application: Some("ALSA plug-in [steam_app_2369390]".into()),
+                    media_name: Some("ALSA Playback".into()),
+                    target: Some(
+                        "Family 17h/19h/1ah HD Audio Controller Analog Stereo".into(),
+                    ),
+                    volume: Some(Volume {
+                        scalar: 1.0,
+                        muted: false,
                     }),
                 },
                 AudioNode {
@@ -199,43 +241,88 @@ impl AudioSnapshot {
                     class: AudioClass::Device {
                         direction: Direction::Input,
                     },
-                    name: "alsa_input.usb-mic.mono-fallback".into(),
-                    description: "USB Microphone".into(),
+                    name: "alsa_input.usb-Razer_Razer_Seiren_X-00.analog-stereo".into(),
+                    description: "Razer Seiren X Analog Stereo".into(),
                     application: None,
                     media_name: None,
-                    target: Some("Mono Input".into()),
+                    target: Some("Analog Stereo".into()),
                     volume: Some(Volume {
                         scalar: 0.71,
                         muted: false,
                     }),
                 },
+                AudioNode {
+                    id: 81,
+                    class: AudioClass::Stream {
+                        direction: Direction::Input,
+                    },
+                    name: "OBS Studio".into(),
+                    description: "OBS Studio".into(),
+                    application: Some("OBS Studio".into()),
+                    media_name: Some("Mic/Aux capture".into()),
+                    target: Some("Razer Seiren X Analog Stereo".into()),
+                    volume: Some(Volume {
+                        scalar: 1.0,
+                        muted: false,
+                    }),
+                },
             ],
-            cards: vec![AudioCard {
-                id: 12,
-                name: "alsa_card.pci-0000_0b_00.4".into(),
-                description: "Built-in Audio".into(),
-                active_profile: Some(1),
-                profiles: vec![
-                    AudioProfile {
-                        index: 1,
-                        name: "output:analog-stereo+input:analog-stereo".into(),
-                        description: "Analog Stereo Duplex".into(),
-                        available: ProfileAvailability::Yes,
-                    },
-                    AudioProfile {
-                        index: 2,
-                        name: "output:analog-stereo".into(),
-                        description: "Analog Stereo Output".into(),
-                        available: ProfileAvailability::Yes,
-                    },
-                    AudioProfile {
-                        index: 0,
-                        name: "off".into(),
-                        description: "Off".into(),
-                        available: ProfileAvailability::Yes,
-                    },
-                ],
-            }],
+            cards: vec![
+                AudioCard {
+                    id: 12,
+                    name: "alsa_card.pci-0000_0b_00.4".into(),
+                    description: "Family 17h/19h/1ah HD Audio Controller".into(),
+                    active_profile: Some(1),
+                    profiles: vec![
+                        AudioProfile {
+                            index: 1,
+                            name: "output:analog-stereo+input:analog-stereo".into(),
+                            description: "Analog Stereo Duplex".into(),
+                            available: ProfileAvailability::Yes,
+                        },
+                        AudioProfile {
+                            index: 2,
+                            name: "output:hdmi-stereo".into(),
+                            description: "Digital Stereo (HDMI) Output + Analog Stereo Input"
+                                .into(),
+                            available: ProfileAvailability::Yes,
+                        },
+                        AudioProfile {
+                            index: 3,
+                            name: "output:hdmi-surround51".into(),
+                            description: "Digital Surround 5.1 (HDMI) Output + Analog Stereo Input"
+                                .into(),
+                            available: ProfileAvailability::No,
+                        },
+                        AudioProfile {
+                            index: 0,
+                            name: "off".into(),
+                            description: "Off".into(),
+                            available: ProfileAvailability::Yes,
+                        },
+                    ],
+                },
+                AudioCard {
+                    id: 18,
+                    name: "alsa_card.pci-0000_0a_00.1".into(),
+                    description: "Navi 21 HDMI Audio [Radeon RX 6800/6800 XT / 6900 XT]".into(),
+                    active_profile: Some(2),
+                    profiles: vec![
+                        AudioProfile {
+                            index: 0,
+                            name: "off".into(),
+                            description: "Off".into(),
+                            available: ProfileAvailability::Yes,
+                        },
+                        AudioProfile {
+                            index: 2,
+                            name: "output:hdmi-stereo-extra2".into(),
+                            description: "Digital Stereo (HDMI 3) Output".into(),
+                            available: ProfileAvailability::Yes,
+                        },
+                    ],
+                },
+            ],
             error: None,
         }
     }
