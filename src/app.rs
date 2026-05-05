@@ -11,8 +11,6 @@ use crate::model::{
 };
 
 pub const MAX_VOLUME_PERCENT: u32 = 150;
-pub const SLIDER_THUMB_SIZE: f32 = 14.0;
-pub const SLIDER_TRACK_HEIGHT: f32 = 10.0;
 
 pub struct VolumeApp {
     pub backend: Box<dyn AudioBackend>,
@@ -445,44 +443,8 @@ fn volume_slider(id: u32, percent: u32, muted: bool) -> El {
     } else {
         tokens::PRIMARY
     };
-    let pct = (percent as f32 / MAX_VOLUME_PERCENT as f32).clamp(0.0, 1.0);
-    let slider_layout = move |ctx: LayoutCtx| {
-        let rect = ctx.container;
-        let usable = (rect.w - SLIDER_THUMB_SIZE).max(1.0);
-        let track_x = rect.x + SLIDER_THUMB_SIZE * 0.5;
-        let track_y = rect.y + (rect.h - SLIDER_TRACK_HEIGHT) * 0.5;
-        let thumb_x = rect.x + pct * usable;
-        let thumb_y = rect.y + (rect.h - SLIDER_THUMB_SIZE) * 0.5;
-        vec![
-            Rect::new(track_x, track_y, usable, SLIDER_TRACK_HEIGHT),
-            Rect::new(track_x, track_y, pct * usable, SLIDER_TRACK_HEIGHT),
-            Rect::new(thumb_x, thumb_y, SLIDER_THUMB_SIZE, SLIDER_THUMB_SIZE),
-        ]
-    };
-
-    stack([
-        El::new(Kind::Custom("meter-track"))
-            .height(Size::Fixed(SLIDER_TRACK_HEIGHT))
-            .width(Size::Fill(1.0))
-            .fill(tokens::BG_MUTED)
-            .radius(tokens::RADIUS_PILL),
-        El::new(Kind::Custom("meter-fill"))
-            .height(Size::Fixed(SLIDER_TRACK_HEIGHT))
-            .width(Size::Fill(1.0))
-            .fill(fill)
-            .radius(tokens::RADIUS_PILL),
-        El::new(Kind::Custom("slider-thumb"))
-            .width(Size::Fixed(SLIDER_THUMB_SIZE))
-            .height(Size::Fixed(SLIDER_THUMB_SIZE))
-            .fill(tokens::TEXT_FOREGROUND)
-            .stroke(tokens::BORDER)
-            .radius(tokens::RADIUS_PILL),
-    ])
-    .key(format!("volume:{id}"))
-    .focusable()
-    .layout(slider_layout)
-    .height(Size::Fixed(18.0))
-    .width(Size::Fill(1.0))
+    let normalized = (percent as f32 / MAX_VOLUME_PERCENT as f32).clamp(0.0, 1.0);
+    slider(normalized, fill).key(format!("volume:{id}"))
 }
 
 fn activity_meter(levels: Option<&NodeLevels>, muted: bool) -> El {
@@ -576,11 +538,8 @@ fn profile_key(key: &str) -> Option<(u32, u32)> {
 }
 
 pub fn slider_percent_from_x(rect: Rect, x: f32) -> u32 {
-    let usable = (rect.w - SLIDER_THUMB_SIZE).max(1.0);
-    let local = x - rect.x - SLIDER_THUMB_SIZE * 0.5;
-    (local / usable * MAX_VOLUME_PERCENT as f32)
-        .round()
-        .clamp(0.0, MAX_VOLUME_PERCENT as f32) as u32
+    let normalized = aetna_core::widgets::slider::normalized_from_event(rect, x);
+    (normalized * MAX_VOLUME_PERCENT as f32).round() as u32
 }
 
 fn badge(label: impl Into<String>) -> El {
@@ -639,9 +598,10 @@ mod tests {
 
     #[test]
     fn slider_percent_tracks_thumb_center() {
+        use aetna_core::widgets::slider::THUMB_SIZE;
         let rect = Rect::new(10.0, 20.0, 220.0, 18.0);
-        let left = rect.x + SLIDER_THUMB_SIZE * 0.5;
-        let usable = rect.w - SLIDER_THUMB_SIZE;
+        let left = rect.x + THUMB_SIZE * 0.5;
+        let usable = rect.w - THUMB_SIZE;
         assert_eq!(slider_percent_from_x(rect, left), 0);
         assert_eq!(slider_percent_from_x(rect, left + usable * 0.5), 75);
         assert_eq!(slider_percent_from_x(rect, left + usable), 150);
