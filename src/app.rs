@@ -238,7 +238,6 @@ fn tab_bar(active: Tab) -> El {
         .collect::<Vec<_>>())
     .gap(tokens::SPACE_XS)
     .width(Size::Fill(1.0))
-    .height(Size::Hug)
 }
 
 fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
@@ -295,13 +294,9 @@ fn configuration_panel(cards: &[AudioCard], app: &VolumeApp) -> El {
 }
 
 fn panel_title(title: &'static str, subtitle: &'static str) -> El {
-    // Hug height so the panel's scroll sibling claims the remaining
-    // vertical space — column default is Fill, which would split the
-    // available height 50/50.
     column([h2(title), text(subtitle).muted().caption()])
         .gap(tokens::SPACE_XS)
         .width(Size::Fill(1.0))
-        .height(Size::Hug)
 }
 
 fn node_row(
@@ -342,10 +337,7 @@ fn node_row(
                 .ellipsis(),
         ])
         .gap(tokens::SPACE_XS)
-        .width(Size::Fill(1.0))
-        // Hug so the row's `align(Center)` centers the title+caption
-        // pair vertically along with the icon/meter/slider siblings.
-        .height(Size::Hug),
+        .width(Size::Fill(1.0)),
         activity_meter(levels.as_ref(), muted).width(Size::Fixed(98.0)),
         volume_slider(node.id, volume, muted).width(Size::Fixed(180.0)),
         text(format!("{volume}%"))
@@ -418,17 +410,13 @@ fn card_row(card: &AudioCard, active_profile: Option<u32>) -> El {
             .collect()
     };
 
-    column([
-        header,
-        column(profile_rows).gap(tokens::SPACE_XS).height(Size::Hug),
-    ])
-    .gap(tokens::SPACE_MD)
-    .padding(tokens::SPACE_MD)
-    .width(Size::Fill(1.0))
-    .height(Size::Hug)
-    .fill(tokens::BG_CARD)
-    .stroke(tokens::BORDER)
-    .radius(tokens::RADIUS_MD)
+    column([header, column(profile_rows).gap(tokens::SPACE_XS)])
+        .gap(tokens::SPACE_MD)
+        .padding(tokens::SPACE_MD)
+        .width(Size::Fill(1.0))
+        .fill(tokens::BG_CARD)
+        .stroke(tokens::BORDER)
+        .radius(tokens::RADIUS_MD)
 }
 
 fn profile_row(card_id: u32, profile: &AudioProfile, active: Option<u32>) -> El {
@@ -489,17 +477,9 @@ fn activity_meter(levels: Option<&NodeLevels>, muted: bool) -> El {
     )
     .gap(4.0)
     .width(Size::Fill(1.0))
-    // Hug height so the row's `align(Center)` vertically centers the
-    // 2-channel stack with the icon/slider/mute siblings. Default Fill
-    // would claim the full 64 px content area and top-align the rows
-    // inside, leaving the meter visibly higher than its neighbors.
-    .height(Size::Hug)
 }
 
 fn meter_channel(label: &'static str, peak: f32, rms: f32, muted: bool) -> El {
-    // Row hugs the caption-height label so the L/R glyph isn't clipped
-    // by an undersized track row. The 6 px meter bar centers inside
-    // automatically (Align::Center on the row).
     row([
         text(label)
             .caption()
@@ -511,7 +491,6 @@ fn meter_channel(label: &'static str, peak: f32, rms: f32, muted: bool) -> El {
     .gap(5.0)
     .align(Align::Center)
     .width(Size::Fill(1.0))
-    .height(Size::Hug)
 }
 
 fn meter_bar(peak: f32, rms: f32, muted: bool) -> El {
