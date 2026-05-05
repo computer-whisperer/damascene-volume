@@ -26,6 +26,11 @@ pub struct VolumeApp {
     /// external changes can flow through.
     pub volume_overrides: RefCell<HashMap<u32, u32>>,
     pub mute_overrides: RefCell<HashMap<u32, bool>>,
+    /// Per-card optimistic profile override, by card id → profile
+    /// index. Some PipeWire devices accept a profile write but don't
+    /// emit a `Profile` param event back, so we track the user's pick
+    /// locally to keep the highlight responsive.
+    pub profile_overrides: RefCell<HashMap<u32, u32>>,
     pub levels: RefCell<LevelService>,
 }
 
@@ -40,6 +45,7 @@ impl VolumeApp {
             snapshot: RefCell::new(snapshot),
             volume_overrides: RefCell::new(HashMap::new()),
             mute_overrides: RefCell::new(HashMap::new()),
+            profile_overrides: RefCell::new(HashMap::new()),
             levels: RefCell::new(levels),
         }
     }
@@ -68,6 +74,19 @@ impl VolumeApp {
             (Some(o), _) => o,
             (None, Some(s)) => s,
             (None, None) => 100,
+        }
+    }
+
+    fn active_profile_for(&self, card: &AudioCard) -> Option<u32> {
+        let snapshot = card.active_profile;
+        let override_val = self.profile_overrides.borrow().get(&card.id).copied();
+        match (override_val, snapshot) {
+            (Some(o), Some(s)) if o == s => {
+                self.profile_overrides.borrow_mut().remove(&card.id);
+                Some(s)
+            }
+            (Some(o), _) => Some(o),
+            (None, s) => s,
         }
     }
 
@@ -137,7 +156,7 @@ impl App for VolumeApp {
         self.sync_state();
         let snapshot = self.snapshot.borrow();
         let content = match self.active_tab {
-            Tab::Configuration => configuration_panel(&snapshot.cards),
+            Tab::Configuration => configuration_panel(&snapshot.cards, self),
             tab => node_panel(snapshot.nodes_for_tab(tab), tab, self),
         };
 
@@ -174,6 +193,9 @@ impl App for VolumeApp {
                 } else if let Some(id) = node_id_from_key(key, "default:") {
                     self.set_default(id);
                 } else if let Some((card_id, profile_index)) = profile_key(key) {
+                    self.profile_overrides
+                        .borrow_mut()
+                        .insert(card_id, profile_index);
                     self.backend.set_card_profile(card_id, profile_index);
                 } else if let Some(id) = node_id_from_key(key, "volume:") {
                     self.scrub_from_event(&event, id);
@@ -263,11 +285,14 @@ fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
     .gap(tokens::SPACE_MD)
 }
 
-fn configuration_panel(cards: &[AudioCard]) -> El {
+fn configuration_panel(cards: &[AudioCard], app: &VolumeApp) -> El {
     let rows = if cards.is_empty() {
         vec![text("No PipeWire cards discovered yet.").muted()]
     } else {
-        cards.iter().map(card_row).collect()
+        cards
+            .iter()
+            .map(|card| card_row(card, app.active_profile_for(card)))
+            .collect()
     };
 
     column([
@@ -353,9 +378,8 @@ fn node_row(
     .radius(tokens::RADIUS_MD)
 }
 
-fn card_row(card: &AudioCard) -> El {
-    let active_label = card
-        .active_profile
+fn card_row(card: &AudioCard, active_profile: Option<u32>) -> El {
+    let active_label = active_profile
         .and_then(|idx| card.profiles.iter().find(|p| p.index == idx))
         .map(|p| p.description.as_str())
         .unwrap_or("No active profile");
@@ -381,7 +405,7 @@ fn card_row(card: &AudioCard) -> El {
     } else {
         card.profiles
             .iter()
-            .map(|profile| profile_row(card.id, profile, card.active_profile))
+            .map(|profile| profile_row(card.id, profile, active_profile))
             .collect()
     };
 
