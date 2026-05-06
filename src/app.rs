@@ -185,6 +185,9 @@ impl VolumeApp {
                 self.backend.set_card_profile(card_id, profile_index);
                 *self.profile_dropdown_open.borrow_mut() = None;
             }
+            // SelectAction is `#[non_exhaustive]` so future variants
+            // need a default; no-op is right for events we don't act on.
+            _ => {}
         }
     }
 
@@ -260,14 +263,25 @@ impl App for VolumeApp {
     }
 
     fn on_event(&mut self, event: UiEvent) {
+        // Tabs row first — `tabs::apply_event` filters on Click/Activate
+        // and the `{key}:tab:{value}` route shape, so it can run ahead
+        // of the per-key dispatch below without conflicting with the
+        // other prefixes (`mute:`, `volume:`, `profile:`, …).
+        if aetna_core::widgets::tabs::apply_event(
+            &mut self.active_tab,
+            &event,
+            "tabs",
+            Tab::from_token,
+        ) {
+            return;
+        }
+
         let Some(key) = event.key.as_deref() else {
             return;
         };
         match event.kind {
             UiEventKind::Click | UiEventKind::Activate => {
-                if let Some(tab) = Tab::ALL.into_iter().find(|tab| tab.key() == key) {
-                    self.active_tab = tab;
-                } else if key == "refresh" {
+                if key == "refresh" {
                     self.volume_overrides.borrow_mut().clear();
                     self.mute_overrides.borrow_mut().clear();
                 } else if let Some(id) = node_id_from_key(key, "mute:") {
@@ -314,20 +328,11 @@ fn header(snapshot: &AudioSnapshot) -> El {
 }
 
 fn tab_bar(active: Tab) -> El {
-    row(Tab::ALL
-        .into_iter()
-        .map(|tab| {
-            let mut item = button(tab.label()).key(tab.key());
-            if tab == active {
-                item = item.primary();
-            } else {
-                item = item.ghost();
-            }
-            item
-        })
-        .collect::<Vec<_>>())
-    .gap(tokens::SPACE_XS)
-    .width(Size::Fill(1.0))
+    tabs_list(
+        "tabs",
+        &active,
+        Tab::ALL.into_iter().map(|tab| (tab, tab.label())),
+    )
 }
 
 fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
@@ -751,14 +756,6 @@ mod tests {
         } else {
             format!("profile:{card_id}:{suffix}")
         };
-        UiEvent {
-            kind: UiEventKind::Click,
-            key: Some(key),
-            target: None,
-            pointer: None,
-            key_press: None,
-            text: None,
-            modifiers: Default::default(),
-        }
+        UiEvent::synthetic_click(key)
     }
 }

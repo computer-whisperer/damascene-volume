@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,14 +30,29 @@ impl Tab {
         }
     }
 
-    pub fn key(self) -> &'static str {
+    /// Stable lowercase token used as the value side of the
+    /// `tabs_list` API and reused by the `render_artifacts` bin for
+    /// per-tab artifact filenames.
+    pub fn token(self) -> &'static str {
         match self {
-            Tab::Playback => "tab:playback",
-            Tab::Recording => "tab:recording",
-            Tab::Outputs => "tab:outputs",
-            Tab::Inputs => "tab:inputs",
-            Tab::Configuration => "tab:configuration",
+            Tab::Playback => "playback",
+            Tab::Recording => "recording",
+            Tab::Outputs => "outputs",
+            Tab::Inputs => "inputs",
+            Tab::Configuration => "configuration",
         }
+    }
+
+    /// Inverse of [`Tab::token`]. Used by `tabs::apply_event` to fold
+    /// a routed click back into a typed `Tab` value.
+    pub fn from_token(token: &str) -> Option<Tab> {
+        Tab::ALL.into_iter().find(|tab| tab.token() == token)
+    }
+}
+
+impl fmt::Display for Tab {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.token())
     }
 }
 
