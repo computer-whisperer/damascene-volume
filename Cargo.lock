@@ -26,7 +26,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aetna-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aetna-fonts",
  "bytemuck",
@@ -45,6 +45,23 @@ dependencies = [
 
 [[package]]
 name = "aetna-fonts"
+version = "0.2.0"
+dependencies = [
+ "aetna-fonts-emoji",
+ "aetna-fonts-roboto",
+ "aetna-fonts-symbols",
+]
+
+[[package]]
+name = "aetna-fonts-emoji"
+version = "0.1.0"
+
+[[package]]
+name = "aetna-fonts-roboto"
+version = "0.1.0"
+
+[[package]]
+name = "aetna-fonts-symbols"
 version = "0.1.0"
 
 [[package]]
@@ -55,12 +72,13 @@ dependencies = [
  "aetna-winit-wgpu",
  "anyhow",
  "pipewire",
+ "rustix 1.1.4",
  "serde",
 ]
 
 [[package]]
 name = "aetna-wgpu"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aetna-core",
  "bytemuck",
@@ -72,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "aetna-winit-wgpu"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aetna-core",
  "aetna-wgpu",
