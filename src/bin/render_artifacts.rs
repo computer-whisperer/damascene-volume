@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use aetna_core::{App, Rect, render_bundle, write_bundle};
+use aetna_core::{App, BuildCx, Rect, render_bundle, write_bundle};
 use aetna_volume::{app::VolumeApp, backend::DemoBackend, model::Tab};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,7 +31,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for tab in tabs {
         let app = VolumeApp::new(Box::new(DemoBackend)).with_active_tab(tab);
-        let mut tree = app.build();
+        let theme = app.theme();
+        let mut tree = app.build(&BuildCx::new(&theme));
         let bundle = render_bundle(&mut tree, viewport, Some("aetna-volume/src"));
         let basename = artifact_basename(tab);
         let written = write_bundle(&bundle, &out_dir, &basename)?;

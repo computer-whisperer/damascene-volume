@@ -220,7 +220,7 @@ impl VolumeApp {
 }
 
 impl App for VolumeApp {
-    fn build(&self) -> El {
+    fn build(&self, _cx: &BuildCx) -> El {
         self.sync_state();
         let snapshot = self.snapshot.borrow();
         let content = match self.active_tab {
@@ -720,14 +720,16 @@ mod tests {
             .first()
             .map(|c| c.id)
             .expect("DemoBackend exposes at least one card");
+        let theme = app.theme();
+        let cx = BuildCx::new(&theme);
         // Closed: only the main column at the root.
-        let closed = app.build();
+        let closed = app.build(&cx);
         assert_eq!(closed.children.len(), 1, "closed: just the main layer");
 
         // Open the dropdown for the first card.
         let toggle = profile_click_event(card_id, "");
         app.handle_profile_event(&toggle, card_id);
-        let opened = app.build();
+        let opened = app.build(&cx);
         assert_eq!(opened.children.len(), 2, "open: main + popover at the root");
         // Popover scrim's dismiss key matches the trigger key suffix.
         let popover = &opened.children[1];
@@ -739,7 +741,7 @@ mod tests {
 
         // Toggling again closes.
         app.handle_profile_event(&toggle, card_id);
-        assert_eq!(app.build().children.len(), 1);
+        assert_eq!(app.build(&cx).children.len(), 1);
     }
 
     #[test]
