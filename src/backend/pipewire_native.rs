@@ -797,6 +797,7 @@ where
         target: prop(props, "target.object")
             .or_else(|| prop(props, "node.target"))
             .map(str::to_string),
+        media_role: prop(props, "media.role").map(str::to_string),
         volume: None,
     })
 }

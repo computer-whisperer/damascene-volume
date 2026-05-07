@@ -15,7 +15,7 @@ use std::{
     thread,
 };
 
-use crate::model::{AudioClass, AudioNode, AudioSnapshot, Direction};
+use crate::model::{AudioClass, AudioNode, Direction};
 
 #[derive(Debug, Clone, Default)]
 pub struct NodeLevels {
@@ -48,9 +48,15 @@ impl LevelService {
         Self::default()
     }
 
-    pub fn ensure_snapshot(&mut self, snapshot: &AudioSnapshot) {
-        let wanted = snapshot
-            .nodes
+    /// Reconcile meter threads against the set of nodes the user can
+    /// currently see. Anything outside `visible` is torn down — meters
+    /// for the inactive tabs aren't worth their fds, threads, and
+    /// PipeWire-side bookkeeping. DSP-role nodes (other apps' peak
+    /// detectors, like pavucontrol's "PulseAudio Volume Control" capture
+    /// streams) are skipped unconditionally to keep us out of a
+    /// metering-each-other feedback loop.
+    pub fn ensure_visible(&mut self, visible: &[&AudioNode]) {
+        let wanted = visible
             .iter()
             .filter(|node| meter_route_for(node).is_some())
             .map(|node| node.id)
@@ -65,7 +71,7 @@ impl LevelService {
         if let Ok(mut levels) = self.levels.lock() {
             levels.retain(|node_id, _| wanted.contains(node_id));
         }
-        for node in &snapshot.nodes {
+        for node in visible {
             self.ensure_node(node);
         }
     }
@@ -130,6 +136,14 @@ enum MeterRoute {
 }
 
 fn meter_route_for(node: &AudioNode) -> Option<MeterRoute> {
+    // Other apps' peak detectors (pavucontrol's "PulseAudio Volume
+    // Control" capture streams, qpwgraph monitors, our own meters when
+    // a sibling instance is running) advertise media.role=DSP. Skip
+    // them — metering somebody else's meter just adds fds and risks a
+    // runaway loop if both apps are using the same heuristic.
+    if node.media_role.as_deref() == Some("DSP") {
+        return None;
+    }
     match node.class {
         AudioClass::Device {
             direction: Direction::Output,
@@ -190,7 +204,10 @@ fn run_pipewire_auto_meter(
         *pw::keys::APP_NAME => "aetna-volume",
         *pw::keys::MEDIA_TYPE => "Audio",
         *pw::keys::MEDIA_CATEGORY => "Capture",
-        *pw::keys::MEDIA_ROLE => "Music",
+        // Tag ourselves as a DSP/peak-detect stream so other monitoring
+        // tools (and `meter_route_for` above, if a sibling instance is
+        // running) know not to attach a meter to us.
+        *pw::keys::MEDIA_ROLE => "DSP",
         *pw::keys::NODE_NAME => format!("aetna-volume.meter.{node_id}"),
         "target.object" => node_id.to_string(),
     };
@@ -297,7 +314,7 @@ fn run_pipewire_linked_meter(
         *pw::keys::APP_NAME => "aetna-volume",
         *pw::keys::MEDIA_TYPE => "Audio",
         *pw::keys::MEDIA_CATEGORY => "Capture",
-        *pw::keys::MEDIA_ROLE => "Music",
+        *pw::keys::MEDIA_ROLE => "DSP", // see auto-meter site for rationale
         *pw::keys::NODE_NAME => format!("aetna-volume.meter.{source_node_id}"),
     };
 
@@ -669,6 +686,20 @@ mod tests {
             media_name: None,
             target: None,
             volume: None,
+            media_role: None,
         }
+    }
+
+    #[test]
+    fn dsp_role_streams_are_not_metered() {
+        // pavucontrol's per-node peak-detect captures show up as
+        // Stream/Input/Audio with media.role=DSP. Without the guard in
+        // meter_route_for they'd each get their own capture stream and
+        // double our fd usage whenever pavucontrol is open.
+        let mut pavucontrol_meter = test_node(AudioClass::Stream {
+            direction: Direction::Input,
+        });
+        pavucontrol_meter.media_role = Some("DSP".into());
+        assert_eq!(meter_route_for(&pavucontrol_meter), None);
     }
 }

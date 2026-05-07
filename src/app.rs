@@ -39,7 +39,7 @@ impl VolumeApp {
     pub fn new(backend: Box<dyn AudioBackend>) -> Self {
         let snapshot = backend.refresh();
         let mut levels = LevelService::new();
-        levels.ensure_snapshot(&snapshot);
+        levels.ensure_visible(&snapshot.nodes_for_tab(Tab::Playback));
         Self {
             backend,
             active_tab: Tab::Playback,
@@ -58,10 +58,16 @@ impl VolumeApp {
     }
 
     /// Pull the latest snapshot from the backend and reconcile meter
-    /// threads. Called once per frame from `build`.
+    /// threads. Called once per frame from `build`. Only the nodes
+    /// shown in the active tab get a meter — the Configuration tab
+    /// gets none, and switching tabs tears down the previous tab's
+    /// meters. This keeps fd / thread / PipeWire-link usage
+    /// proportional to what's on screen rather than to the whole
+    /// graph.
     fn sync_state(&self) {
         let snapshot = self.backend.refresh();
-        self.levels.borrow_mut().ensure_snapshot(&snapshot);
+        let visible = snapshot.nodes_for_tab(self.active_tab);
+        self.levels.borrow_mut().ensure_visible(&visible);
         *self.snapshot.borrow_mut() = snapshot;
     }
 

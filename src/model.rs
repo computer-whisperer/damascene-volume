@@ -100,6 +100,12 @@ pub struct AudioNode {
     pub media_name: Option<String>,
     pub target: Option<String>,
     pub volume: Option<Volume>,
+    /// PipeWire `media.role`. Carried so the meter scheduler can skip
+    /// peak-detect / DSP capture streams (e.g. pavucontrol's per-node
+    /// monitors) — attaching a meter to another app's meter is the
+    /// quickest way to a runaway feedback loop.
+    #[serde(default)]
+    pub media_role: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,6 +188,7 @@ impl AudioSnapshot {
                     application: None,
                     media_name: None,
                     target: Some("Analog Stereo Duplex".into()),
+                    media_role: None,
                     volume: Some(Volume {
                         scalar: 0.64,
                         muted: false,
@@ -197,6 +204,7 @@ impl AudioSnapshot {
                     application: None,
                     media_name: None,
                     target: Some("Digital Stereo (HDMI 3)".into()),
+                    media_role: None,
                     volume: Some(Volume {
                         scalar: 1.0,
                         muted: false,
@@ -214,6 +222,7 @@ impl AudioSnapshot {
                     target: Some(
                         "Family 17h/19h/1ah HD Audio Controller Analog Stereo".into(),
                     ),
+                    media_role: None,
                     volume: Some(Volume {
                         scalar: 0.82,
                         muted: false,
@@ -231,6 +240,7 @@ impl AudioSnapshot {
                     target: Some(
                         "Family 17h/19h/1ah HD Audio Controller Analog Stereo".into(),
                     ),
+                    media_role: None,
                     volume: Some(Volume {
                         scalar: 0.48,
                         muted: true,
@@ -248,6 +258,7 @@ impl AudioSnapshot {
                     target: Some(
                         "Family 17h/19h/1ah HD Audio Controller Analog Stereo".into(),
                     ),
+                    media_role: None,
                     volume: Some(Volume {
                         scalar: 1.0,
                         muted: false,
@@ -263,6 +274,7 @@ impl AudioSnapshot {
                     application: None,
                     media_name: None,
                     target: Some("Analog Stereo".into()),
+                    media_role: None,
                     volume: Some(Volume {
                         scalar: 0.71,
                         muted: false,
@@ -278,6 +290,7 @@ impl AudioSnapshot {
                     application: Some("OBS Studio".into()),
                     media_name: Some("Mic/Aux capture".into()),
                     target: Some("Razer Seiren X Analog Stereo".into()),
+                    media_role: None,
                     volume: Some(Volume {
                         scalar: 1.0,
                         muted: false,
