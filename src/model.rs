@@ -93,6 +93,13 @@ impl Volume {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioNode {
     pub id: u32,
+    /// PipeWire `object.serial` — the monotonic, never-reused
+    /// identifier. Required when writing `target.object` on the
+    /// `default` metadata as `Spa:Id`: WirePlumber's stream-router
+    /// matches on serial, not id (id 52 ≠ serial 72 for the same
+    /// node, and the wrong number silently no-ops).
+    #[serde(default)]
+    pub serial: u64,
     pub class: AudioClass,
     pub name: String,
     pub description: String,
@@ -180,6 +187,7 @@ impl AudioSnapshot {
             nodes: vec![
                 AudioNode {
                     id: 42,
+                    serial: 42,
                     class: AudioClass::Device {
                         direction: Direction::Output,
                     },
@@ -196,6 +204,7 @@ impl AudioSnapshot {
                 },
                 AudioNode {
                     id: 48,
+                    serial: 48,
                     class: AudioClass::Device {
                         direction: Direction::Output,
                     },
@@ -212,6 +221,7 @@ impl AudioSnapshot {
                 },
                 AudioNode {
                     id: 56,
+                    serial: 56,
                     class: AudioClass::Stream {
                         direction: Direction::Output,
                     },
@@ -230,6 +240,7 @@ impl AudioSnapshot {
                 },
                 AudioNode {
                     id: 61,
+                    serial: 61,
                     class: AudioClass::Stream {
                         direction: Direction::Output,
                     },
@@ -248,6 +259,7 @@ impl AudioSnapshot {
                 },
                 AudioNode {
                     id: 64,
+                    serial: 64,
                     class: AudioClass::Stream {
                         direction: Direction::Output,
                     },
@@ -266,6 +278,7 @@ impl AudioSnapshot {
                 },
                 AudioNode {
                     id: 77,
+                    serial: 77,
                     class: AudioClass::Device {
                         direction: Direction::Input,
                     },
@@ -282,6 +295,7 @@ impl AudioSnapshot {
                 },
                 AudioNode {
                     id: 81,
+                    serial: 81,
                     class: AudioClass::Stream {
                         direction: Direction::Input,
                     },

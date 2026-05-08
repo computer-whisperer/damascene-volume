@@ -21,11 +21,28 @@ use crate::model::{
 /// over [`pw::channel`] (loop-integrated, fires the receiver callback
 /// the next time the mainloop wakes).
 enum BackendCommand {
-    SetMute { node_id: u32, muted: bool },
-    SetVolume { node_id: u32, scalar: f32 },
-    SetDefaultSink { node_name: String },
-    SetDefaultSource { node_name: String },
-    SetCardProfile { card_id: u32, profile_index: u32 },
+    SetMute {
+        node_id: u32,
+        muted: bool,
+    },
+    SetVolume {
+        node_id: u32,
+        scalar: f32,
+    },
+    SetDefaultSink {
+        node_name: String,
+    },
+    SetDefaultSource {
+        node_name: String,
+    },
+    SetCardProfile {
+        card_id: u32,
+        profile_index: u32,
+    },
+    SetStreamTarget {
+        stream_id: u32,
+        target_serial: Option<u64>,
+    },
     Quit,
 }
 
@@ -130,6 +147,13 @@ impl AudioBackend for PipeWireBackend {
         let _ = self.commands.send(BackendCommand::SetCardProfile {
             card_id,
             profile_index,
+        });
+    }
+
+    fn set_stream_target(&self, stream_id: u32, target_serial: Option<u64>) {
+        let _ = self.commands.send(BackendCommand::SetStreamTarget {
+            stream_id,
+            target_serial,
         });
     }
 }
@@ -440,6 +464,12 @@ fn run_backend_loop(
         } => {
             apply_card_profile(&devices_for_commands.borrow(), card_id, profile_index);
         }
+        BackendCommand::SetStreamTarget {
+            stream_id,
+            target_serial,
+        } => {
+            apply_stream_target(&default_for_commands.borrow(), stream_id, target_serial);
+        }
     });
 
     // Sync the core to know when the initial registry walk is complete,
@@ -584,6 +614,40 @@ fn decode_enum_profile(bytes: &[u8]) -> Option<AudioProfile> {
         description,
         available,
     })
+}
+
+/// Pin (or clear) a stream's routing override by writing the
+/// `target.object` property on the `default` metadata, keyed by the
+/// stream's node id. `Some(serial)` writes the target's
+/// `object.serial` as `Spa:Id` — the form WirePlumber's
+/// stream-router actually honors. (The `Spa:String:JSON` `{"name":
+/// "..."}` form is also nominally supported but WP silently ignores
+/// it for routing decisions, so we don't use it.) `None` deletes the
+/// property so the stream falls back to default policy routing.
+fn apply_stream_target(
+    entry: &Option<DefaultMetaEntry>,
+    stream_id: u32,
+    target_serial: Option<u64>,
+) {
+    let Some(entry) = entry else {
+        eprintln!(
+            "aetna-volume: cannot set stream target on {stream_id} — default metadata not yet bound"
+        );
+        return;
+    };
+    match target_serial {
+        Some(serial) => {
+            let value = serial.to_string();
+            entry
+                .proxy
+                .set_property(stream_id, "target.object", Some("Spa:Id"), Some(&value));
+        }
+        None => {
+            entry
+                .proxy
+                .set_property(stream_id, "target.object", None, None);
+        }
+    }
 }
 
 fn apply_default(entry: &Option<DefaultMetaEntry>, key: &str, node_name: &str) {
@@ -802,8 +866,18 @@ where
         .unwrap_or(&name)
         .to_string();
 
+    // Object serials are documented as u64. PipeWire never re-uses
+    // them, so they make a stable identity for routing writes — but
+    // the global id can be reused. If the prop is missing on some
+    // exotic object, fall back to the id (cast to u64): better than a
+    // 0 that would alias with no-routing.
+    let serial = prop(props, "object.serial")
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(u64::from(global.id));
+
     Some(AudioNode {
         id: global.id,
+        serial,
         class,
         name,
         description,

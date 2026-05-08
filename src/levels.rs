@@ -678,6 +678,7 @@ mod tests {
     fn test_node(class: AudioClass) -> AudioNode {
         AudioNode {
             id: 1,
+            serial: 1,
             class,
             name: "test".into(),
             description: "test".into(),

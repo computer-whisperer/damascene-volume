@@ -11,6 +11,11 @@ use crate::model::{
 
 pub const MAX_VOLUME_PERCENT: u32 = 150;
 
+/// Sentinel `value` used by the per-stream target dropdown's "Default
+/// — automatic routing" entry. Must not collide with any real
+/// `node.name` (no PipeWire node ever uses this string).
+const TARGET_DEFAULT_VALUE: &str = "__aetna_default__";
+
 pub struct VolumeApp {
     pub backend: Box<dyn AudioBackend>,
     pub active_tab: Tab,
@@ -28,10 +33,19 @@ pub struct VolumeApp {
     /// emit a `Profile` param event back, so we track the user's pick
     /// locally to keep the highlight responsive.
     pub profile_overrides: RefCell<HashMap<u32, u32>>,
+    /// Per-stream optimistic target override, by stream id → either
+    /// the picked device's `object.serial`, or `None` meaning "Default
+    /// (automatic routing)". WirePlumber's metadata server doesn't
+    /// echo `target.object` writes back to clients, so we never see a
+    /// confirmation event — the override sticks for the session.
+    pub target_overrides: RefCell<HashMap<u32, Option<u64>>>,
     /// Which card's profile dropdown is currently open. Single shared
     /// slot — only one menu can be open at a time and the click-outside
     /// scrim closes it before another can open.
     pub profile_dropdown_open: RefCell<Option<u32>>,
+    /// Which stream's target-device dropdown is currently open. Same
+    /// shared-slot rule as `profile_dropdown_open`.
+    pub target_dropdown_open: RefCell<Option<u32>>,
     pub levels: RefCell<LevelService>,
 }
 
@@ -47,7 +61,9 @@ impl VolumeApp {
             volume_overrides: RefCell::new(HashMap::new()),
             mute_overrides: RefCell::new(HashMap::new()),
             profile_overrides: RefCell::new(HashMap::new()),
+            target_overrides: RefCell::new(HashMap::new()),
             profile_dropdown_open: RefCell::new(None),
+            target_dropdown_open: RefCell::new(None),
             levels: RefCell::new(levels),
         }
     }
@@ -164,6 +180,49 @@ impl VolumeApp {
         }
     }
 
+    fn handle_target_event(&mut self, event: &UiEvent, stream_id: u32) {
+        let key = format!("target:{stream_id}");
+        let Some(action) = aetna_core::widgets::select::classify_event(event, &key) else {
+            return;
+        };
+        match action {
+            SelectAction::Toggle => {
+                let mut open = self.target_dropdown_open.borrow_mut();
+                *open = if *open == Some(stream_id) {
+                    None
+                } else {
+                    // Closing any other open dropdown isn't necessary —
+                    // there's only one slot per kind — but guard against
+                    // a half-open state by clobbering this slot.
+                    Some(stream_id)
+                };
+            }
+            SelectAction::Dismiss => {
+                *self.target_dropdown_open.borrow_mut() = None;
+            }
+            SelectAction::Pick(value) => {
+                let target_serial: Option<u64> = if value == TARGET_DEFAULT_VALUE {
+                    None
+                } else {
+                    // The select_menu was populated with each device's
+                    // serial as its option value, so parsing back is
+                    // total — anything that doesn't parse means the
+                    // dropdown shape drifted from the picker source.
+                    match value.parse::<u64>() {
+                        Ok(serial) => Some(serial),
+                        Err(_) => return,
+                    }
+                };
+                self.backend.set_stream_target(stream_id, target_serial);
+                self.target_overrides
+                    .borrow_mut()
+                    .insert(stream_id, target_serial);
+                *self.target_dropdown_open.borrow_mut() = None;
+            }
+            _ => {}
+        }
+    }
+
     fn handle_profile_event(&mut self, event: &UiEvent, card_id: u32) {
         let key = format!("profile:{card_id}");
         let Some(action) = aetna_core::widgets::select::classify_event(event, &key) else {
@@ -269,7 +328,31 @@ impl App for VolumeApp {
         } else {
             None
         };
-        overlays(main, [profile_menu]).fill_size()
+
+        // Per-stream target picker. Only the Playback / Recording tabs
+        // can open one — the other tabs don't render stream rows.
+        let target_menu = if matches!(self.active_tab, Tab::Playback | Tab::Recording)
+            && let Some(stream_id) = *self.target_dropdown_open.borrow()
+            && let Some(stream) = snapshot.nodes.iter().find(|n| n.id == stream_id)
+            && let AudioClass::Stream { direction } = stream.class
+        {
+            let mut options: Vec<(String, String)> = vec![(
+                TARGET_DEFAULT_VALUE.to_string(),
+                "Default — automatic".to_string(),
+            )];
+            options.extend(
+                snapshot
+                    .nodes
+                    .iter()
+                    .filter(|n| matches!(n.class, AudioClass::Device { direction: d } if d == direction))
+                    .map(|n| (n.serial.to_string(), n.description.clone())),
+            );
+            Some(select_menu(format!("target:{stream_id}"), options))
+        } else {
+            None
+        };
+
+        overlays(main, [profile_menu, target_menu]).fill_size()
     }
 
     fn on_event(&mut self, event: UiEvent) {
@@ -300,6 +383,8 @@ impl App for VolumeApp {
                     self.set_default(id);
                 } else if let Some(card_id) = card_id_for_profile_select(key) {
                     self.handle_profile_event(&event, card_id);
+                } else if let Some(stream_id) = stream_id_for_target_select(key) {
+                    self.handle_target_event(&event, stream_id);
                 } else if let Some(id) = node_id_from_key(key, "volume:") {
                     self.scrub_from_event(&event, id);
                 }
@@ -353,12 +438,15 @@ fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
         nodes
             .into_iter()
             .map(|node| {
+                let target_label = matches!(node.class, AudioClass::Stream { .. })
+                    .then(|| target_label_for_stream(&snapshot, node, app));
                 node_row(
                     node,
                     app.percent_for(node),
                     app.muted_for(node),
                     snapshot.is_default(node),
                     app.levels.borrow().level_for(node.id),
+                    target_label,
                 )
             })
             .collect()
@@ -369,6 +457,76 @@ fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
         scroll(rows).key("node-list").height(Size::Fill(1.0)),
     ])
     .gap(tokens::SPACE_MD)
+}
+
+/// Resolve the visible label for a stream's target dropdown trigger.
+/// Optimistic override wins; otherwise fall back to the registry-time
+/// `target.object` value, which is whatever WirePlumber last wrote —
+/// typically a bare `object.serial` string for `Spa:Id` writes, or a
+/// `{"name":"..."}` JSON blob for older clients. Returns "Default"
+/// when no override is set or the target can't be resolved.
+fn target_label_for_stream(snapshot: &AudioSnapshot, node: &AudioNode, app: &VolumeApp) -> String {
+    resolved_target_for_stream(snapshot, node, app)
+        .map(|n| n.description.clone())
+        .unwrap_or_else(|| "Default".to_string())
+}
+
+fn resolved_target_for_stream<'a>(
+    snapshot: &'a AudioSnapshot,
+    node: &AudioNode,
+    app: &VolumeApp,
+) -> Option<&'a AudioNode> {
+    let direction = match &node.class {
+        AudioClass::Stream { direction } => *direction,
+        _ => return None,
+    };
+    let device_with_serial = |serial: u64| -> Option<&AudioNode> {
+        snapshot.nodes.iter().find(|n| {
+            n.serial == serial
+                && matches!(n.class, AudioClass::Device { direction: d } if d == direction)
+        })
+    };
+    let device_with_name = |name: &str| -> Option<&AudioNode> {
+        snapshot.nodes.iter().find(|n| {
+            n.name == name
+                && matches!(n.class, AudioClass::Device { direction: d } if d == direction)
+        })
+    };
+    match app.target_overrides.borrow().get(&node.id).copied() {
+        Some(None) => None,
+        Some(Some(serial)) => device_with_serial(serial),
+        None => {
+            let raw = node.target.as_deref()?.trim();
+            if raw.is_empty() {
+                return None;
+            }
+            if let Ok(serial) = raw.parse::<u64>() {
+                device_with_serial(serial)
+            } else if let Some(name) = extract_target_name_from_json(raw) {
+                device_with_name(name)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Extract the `name` field from a `{"name":"..."}` JSON blob, used
+/// only for the legacy fallback path where a stream's `target.object`
+/// prop happens to be in the string-JSON shape.
+fn extract_target_name_from_json(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+    let key_pos = trimmed.find("\"name\"")?;
+    let after = &trimmed[key_pos + 6..];
+    let colon = after.find(':')?;
+    let after_colon = &after[colon + 1..];
+    let open = after_colon.find('"')?;
+    let rest = &after_colon[open + 1..];
+    let close = rest.find('"')?;
+    Some(&rest[..close])
 }
 
 fn tab_subtitle(tab: Tab) -> &'static str {
@@ -410,14 +568,39 @@ fn node_row(
     muted: bool,
     is_default: bool,
     levels: Option<NodeLevels>,
+    target_label: Option<String>,
 ) -> El {
     let title = node
         .application
         .as_deref()
         .or(node.media_name.as_deref())
         .unwrap_or(&node.description);
-    let target = node.target.as_deref().unwrap_or("No route");
     let is_device = matches!(node.class, AudioClass::Device { .. });
+
+    // Streams get an interactive target picker in place of the static
+    // "#id  target" caption; devices keep the caption with the
+    // registry-time target string.
+    let secondary: El = match &target_label {
+        Some(label) => row([
+            text(format!("#{id}", id = node.id))
+                .caption()
+                .mono()
+                .muted()
+                .width(Size::Fixed(48.0)),
+            select_trigger(format!("target:{}", node.id), label.clone()).width(Size::Fill(1.0)),
+        ])
+        .gap(tokens::SPACE_SM)
+        .align(Align::Center)
+        .width(Size::Fill(1.0)),
+        None => text(format!(
+            "#{id}  {target}",
+            id = node.id,
+            target = node.target.as_deref().unwrap_or("No route"),
+        ))
+        .caption()
+        .muted()
+        .ellipsis(),
+    };
 
     let mut children: Vec<El> = vec![
         icon(if muted { "x" } else { "activity" })
@@ -436,10 +619,7 @@ fn node_row(
             // .ellipsis() only takes effect when the box is constrained,
             // hence Fill width on a column that itself has Fill width.
             text(title).label().ellipsis().width(Size::Fill(1.0)),
-            text(format!("#{id}  {target}", id = node.id))
-                .caption()
-                .muted()
-                .ellipsis(),
+            secondary,
         ])
         .gap(tokens::SPACE_XS)
         .width(Size::Fill(1.0)),
@@ -633,6 +813,13 @@ fn card_id_for_profile_select(key: &str) -> Option<u32> {
     rest.split(':').next()?.parse().ok()
 }
 
+/// Same shape as [`card_id_for_profile_select`], but for the
+/// per-stream target picker (`target:{stream_id}` + select suffixes).
+fn stream_id_for_target_select(key: &str) -> Option<u32> {
+    let rest = key.strip_prefix("target:")?;
+    rest.split(':').next()?.parse().ok()
+}
+
 pub fn slider_percent_from_x(rect: Rect, x: f32) -> u32 {
     let normalized = aetna_core::widgets::slider::normalized_from_event(rect, x);
     (normalized * MAX_VOLUME_PERCENT as f32).round() as u32
@@ -760,6 +947,40 @@ mod tests {
         // Unrelated keys (other widget routes) don't match.
         assert_eq!(card_id_for_profile_select("mute:7"), None);
         assert_eq!(card_id_for_profile_select("profile:abc"), None);
+    }
+
+    #[test]
+    fn stream_id_for_target_select_decodes_per_stream_key() {
+        assert_eq!(stream_id_for_target_select("target:42"), Some(42));
+        assert_eq!(stream_id_for_target_select("target:42:dismiss"), Some(42));
+        assert_eq!(
+            stream_id_for_target_select("target:42:option:alsa_output.foo"),
+            Some(42),
+        );
+        // Don't collide with the profile picker shape, even though
+        // both use a single-prefix-then-id key form.
+        assert_eq!(stream_id_for_target_select("profile:42"), None);
+        assert_eq!(stream_id_for_target_select("target:abc"), None);
+    }
+
+    #[test]
+    fn extract_target_name_from_json_only_accepts_braced_name() {
+        // Canonical JSON form (matches what `wpctl set-default` writes).
+        assert_eq!(
+            extract_target_name_from_json(r#"{"name":"alsa_output.foo"}"#),
+            Some("alsa_output.foo"),
+        );
+        // Whitespace tolerated.
+        assert_eq!(
+            extract_target_name_from_json(r#"{ "name": "alsa_output.foo" }"#),
+            Some("alsa_output.foo"),
+        );
+        // Bare strings are NOT accepted here — the serial path covers
+        // `Spa:Id`-style values, and a bare name without braces would
+        // be ambiguous with garbage.
+        assert_eq!(extract_target_name_from_json("alsa_output.bar"), None);
+        assert_eq!(extract_target_name_from_json(r#"{"serial":42}"#), None);
+        assert_eq!(extract_target_name_from_json(""), None);
     }
 
     fn profile_click_event(card_id: u32, suffix: &str) -> UiEvent {

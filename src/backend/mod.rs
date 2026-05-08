@@ -44,6 +44,18 @@ pub trait AudioBackend {
     fn set_card_profile(&self, card_id: u32, profile_index: u32) {
         let _ = (card_id, profile_index);
     }
+
+    /// Pin a stream node to a specific device (sink for playback,
+    /// source for recording), or pass `None` to clear the override and
+    /// let WirePlumber's default routing apply. `target_serial` is the
+    /// device's [`crate::model::AudioNode::serial`] (PipeWire
+    /// `object.serial`) — *not* its global id. WirePlumber's
+    /// stream-router matches on serial, and the wrong number silently
+    /// no-ops. Implemented over the `default` metadata
+    /// (`target.object` as `Spa:Id`, keyed by the stream's id).
+    fn set_stream_target(&self, stream_id: u32, target_serial: Option<u64>) {
+        let _ = (stream_id, target_serial);
+    }
 }
 
 #[derive(Default)]
