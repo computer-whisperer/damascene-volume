@@ -163,9 +163,10 @@ fn run_backend_loop(
     let channels: Rc<RefCell<HashMap<u32, usize>>> = Rc::new(RefCell::new(HashMap::new()));
 
     // Holds the bound `default` metadata proxy + its listener. Used to
-    // both write `default.audio.sink`/`default.audio.source` (Set
-    // Default action) and to receive change notifications so the
-    // snapshot tracks whatever the system considers default.
+    // write `default.configured.audio.sink`/`…source` (Set Default
+    // action) and to receive change notifications on the active
+    // `default.audio.sink`/`…source` keys so the snapshot tracks
+    // whatever the system considers default.
     let default_metadata: Rc<RefCell<Option<DefaultMetaEntry>>> = Rc::new(RefCell::new(None));
 
     // Per-card Device proxies + their param listeners. Used to read
@@ -180,6 +181,7 @@ fn run_backend_loop(
     let channels_for_global = channels.clone();
     let channels_for_remove = channels.clone();
     let default_for_global = default_metadata.clone();
+    let default_for_remove = default_metadata.clone();
     let devices_for_global = devices.clone();
     let devices_for_remove = devices.clone();
     let registry_for_bind = registry.clone();
@@ -269,6 +271,7 @@ fn run_backend_loop(
                     .map(|name| name == "default")
                     .unwrap_or(false);
                 if is_default_meta {
+                    let global_id = global.id;
                     match registry_for_bind.bind::<pw::metadata::Metadata, _>(global) {
                         Ok(meta) => {
                             let snapshot_for_meta = snapshot_for_global.clone();
@@ -306,6 +309,7 @@ fn run_backend_loop(
                             *default_for_global.borrow_mut() = Some(DefaultMetaEntry {
                                 proxy: meta,
                                 _listener: listener,
+                                global_id,
                             });
                         }
                         Err(err) => {
@@ -379,6 +383,13 @@ fn run_backend_loop(
             proxies_for_remove.borrow_mut().remove(&id);
             channels_for_remove.borrow_mut().remove(&id);
             devices_for_remove.borrow_mut().remove(&id);
+            // Drop the cached default-metadata binding if its global went
+            // away — the proxy is stale at that point and the next
+            // `default`-named global to appear will re-bind cleanly.
+            let mut default_slot = default_for_remove.borrow_mut();
+            if default_slot.as_ref().is_some_and(|e| e.global_id == id) {
+                *default_slot = None;
+            }
         })
         .register();
 
@@ -386,6 +397,7 @@ fn run_backend_loop(
     let channels_for_commands = channels.clone();
     let default_for_commands = default_metadata.clone();
     let devices_for_commands = devices.clone();
+    let snapshot_for_commands = snapshot.clone();
     let mainloop_for_quit = mainloop.clone();
     let _commands_attached = commands_rx.attach(mainloop.loop_(), move |cmd| match cmd {
         BackendCommand::Quit => mainloop_for_quit.quit(),
@@ -397,18 +409,30 @@ fn run_backend_loop(
             apply_volume(&proxies_for_commands.borrow(), node_id, scalar, count);
         }
         BackendCommand::SetDefaultSink { node_name } => {
+            // Mirror what `wpctl set-default` does: write the configured
+            // pref and let WirePlumber cascade to the active key. Also
+            // optimistically update our own snapshot — WP's metadata server
+            // does not reliably broadcast property events back to clients
+            // for default-key writes, so the marker would otherwise stay
+            // on the previous value until something else churned the state.
             apply_default(
                 &default_for_commands.borrow(),
-                "default.audio.sink",
+                "default.configured.audio.sink",
                 &node_name,
             );
+            if let Ok(mut snap) = snapshot_for_commands.lock() {
+                snap.default_sink_name = Some(node_name);
+            }
         }
         BackendCommand::SetDefaultSource { node_name } => {
             apply_default(
                 &default_for_commands.borrow(),
-                "default.audio.source",
+                "default.configured.audio.source",
                 &node_name,
             );
+            if let Ok(mut snap) = snapshot_for_commands.lock() {
+                snap.default_source_name = Some(node_name);
+            }
         }
         BackendCommand::SetCardProfile {
             card_id,
@@ -443,6 +467,7 @@ struct NodeEntry {
 struct DefaultMetaEntry {
     proxy: pw::metadata::Metadata,
     _listener: pw::metadata::MetadataListener,
+    global_id: u32,
 }
 
 struct DeviceEntry {
