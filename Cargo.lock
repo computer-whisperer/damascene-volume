@@ -26,7 +26,9 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aetna-core"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99a99a5de7fc20be43830238e2f46ff818a3d65874bd0308753f3b193ee5c97c"
 dependencies = [
  "aetna-fonts",
  "bytemuck",
@@ -45,7 +47,9 @@ dependencies = [
 
 [[package]]
 name = "aetna-fonts"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a97c9cec76a17ae5120d45f376a3c971ed8cf6e77915663d3aaaa05219d773f"
 dependencies = [
  "aetna-fonts-emoji",
  "aetna-fonts-inter",
@@ -56,18 +60,26 @@ dependencies = [
 [[package]]
 name = "aetna-fonts-emoji"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e25a2ffb1e54e79ffb17195a655c719ca403dd50b2deac0890f7f7e0486e898"
 
 [[package]]
 name = "aetna-fonts-inter"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b8d860e8cf47e60287672af29067f62bed9e22c3c61fbd6edc1be1dbe04ed37"
 
 [[package]]
 name = "aetna-fonts-roboto"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fa2818904d0737a5ad24186996e7e5b8b532d9740df393ad57b20b5f84f3570"
 
 [[package]]
 name = "aetna-fonts-symbols"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1af44d458ac64fdf6374444de07b5d13a79bb478da01258d965142f0a86e9cc9"
 
 [[package]]
 name = "aetna-volume"
@@ -83,7 +95,9 @@ dependencies = [
 
 [[package]]
 name = "aetna-wgpu"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b60d780e5cc1286313b3556f217e24b75692cba3336e126ff70c1d8fe1ba39ba"
 dependencies = [
  "aetna-core",
  "bytemuck",
@@ -95,7 +109,9 @@ dependencies = [
 
 [[package]]
 name = "aetna-winit-wgpu"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0a43e8f0829899ef99698637b0f58c0343a14c0b640f2a59f06a1e63f2d4fe2"
 dependencies = [
  "aetna-core",
  "aetna-wgpu",

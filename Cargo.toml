@@ -5,8 +5,8 @@ edition = "2024"
 default-run = "aetna-volume"
 
 [dependencies]
-aetna-core = { path = "../aetna/aetna.main/crates/aetna-core" }
-aetna-winit-wgpu = { path = "../aetna/aetna.main/crates/aetna-winit-wgpu" }
+aetna-core = "0.3"
+aetna-winit-wgpu = "0.3"
 anyhow = "1"
 pipewire = "0.9.2"
 rustix = { version = "1.1", features = ["process"] }

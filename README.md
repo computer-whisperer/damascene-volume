@@ -26,9 +26,13 @@ we can name PipeWire objects and routes correctly.
 cargo run
 ```
 
-The project currently depends on the local Aetna checkout at:
+Aetna is consumed from crates.io (currently `aetna-core`/`aetna-winit-wgpu` 0.3).
 
-```text
-../aetna/aetna.main
+## Local install (Arch)
+
+A minimal in-tree PKGBUILD is provided. From the repo root:
+
+```bash
+makepkg -si
 ```
 
