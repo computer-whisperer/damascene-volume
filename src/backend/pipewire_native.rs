@@ -16,6 +16,7 @@ use crate::model::{
     AudioCard, AudioClass, AudioNode, AudioProfile, AudioSnapshot, Direction, ProfileAvailability,
     Volume,
 };
+use crate::util::parse_name_json;
 
 /// Commands sent from the main thread to the PipeWire backend thread
 /// over [`pw::channel`] (loop-integrated, fires the receiver callback
@@ -319,7 +320,8 @@ fn run_backend_loop(
                                     let Some(is_sink) = target else {
                                         return 0;
                                     };
-                                    let name = value.and_then(default_name_from_json);
+                                    let name =
+                                        value.and_then(|v| parse_name_json(v).map(str::to_string));
                                     if let Ok(mut snap) = snapshot_for_meta.lock() {
                                         if is_sink {
                                             snap.default_sink_name = name;
@@ -668,20 +670,6 @@ fn apply_default(entry: &Option<DefaultMetaEntry>, key: &str, node_name: &str) {
 /// names (which never contain control characters in practice).
 fn json_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-/// Pull the `name` field out of `{"name":"..."}` style JSON that
-/// PipeWire stores in the `default` metadata.
-fn default_name_from_json(value: &str) -> Option<String> {
-    let key = "\"name\"";
-    let key_pos = value.find(key)?;
-    let after_key = &value[key_pos + key.len()..];
-    let colon_pos = after_key.find(':')?;
-    let after_colon = &after_key[colon_pos + 1..];
-    let open_quote = after_colon.find('"')?;
-    let rest = &after_colon[open_quote + 1..];
-    let close_quote = rest.find('"')?;
-    Some(rest[..close_quote].to_string())
 }
 
 fn apply_mute(proxies: &HashMap<u32, NodeEntry>, node_id: u32, muted: bool) {

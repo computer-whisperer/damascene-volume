@@ -59,12 +59,5 @@ fn parse_tab(raw: &str) -> Option<Tab> {
 }
 
 fn artifact_basename(tab: Tab) -> String {
-    let name = match tab {
-        Tab::Playback => "playback",
-        Tab::Recording => "recording",
-        Tab::Outputs => "outputs",
-        Tab::Inputs => "inputs",
-        Tab::Configuration => "configuration",
-    };
-    format!("tab_{name}")
+    format!("tab_{}", tab.token())
 }

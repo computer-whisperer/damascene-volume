@@ -9,6 +9,7 @@ use crate::levels::{LevelService, NodeLevels};
 use crate::model::{
     AudioCard, AudioClass, AudioNode, AudioSnapshot, Direction, ProfileAvailability, Tab, Volume,
 };
+use crate::util::parse_name_json;
 
 pub const MAX_VOLUME_PERCENT: u32 = 150;
 
@@ -308,8 +309,7 @@ impl App for VolumeApp {
         .gap(tokens::SPACE_4)
         .padding(tokens::SPACE_4)
         .width(Size::Fill(1.0))
-        .height(Size::Fill(1.0))
-        .fill(tokens::BACKGROUND);
+        .height(Size::Fill(1.0));
 
         // Profile select dropdown — popovers compose at the root of the
         // El tree (see aetna_core widgets::popover docs), so the menu
@@ -514,31 +514,13 @@ fn resolved_target_for_stream<'a>(
             }
             if let Ok(serial) = raw.parse::<u64>() {
                 device_with_serial(serial)
-            } else if let Some(name) = extract_target_name_from_json(raw) {
+            } else if let Some(name) = parse_name_json(raw) {
                 device_with_name(name)
             } else {
                 None
             }
         }
     }
-}
-
-/// Extract the `name` field from a `{"name":"..."}` JSON blob, used
-/// only for the legacy fallback path where a stream's `target.object`
-/// prop happens to be in the string-JSON shape.
-fn extract_target_name_from_json(raw: &str) -> Option<&str> {
-    let trimmed = raw.trim();
-    if !trimmed.starts_with('{') {
-        return None;
-    }
-    let key_pos = trimmed.find("\"name\"")?;
-    let after = &trimmed[key_pos + 6..];
-    let colon = after.find(':')?;
-    let after_colon = &after[colon + 1..];
-    let open = after_colon.find('"')?;
-    let rest = &after_colon[open + 1..];
-    let close = rest.find('"')?;
-    Some(&rest[..close])
 }
 
 fn tab_subtitle(tab: Tab) -> &'static str {
@@ -665,31 +647,32 @@ fn node_row(
         );
     }
 
-    row(children)
+    card([row(children)
         .gap(tokens::SPACE_3)
         .align(Align::Center)
         .padding(tokens::SPACE_3)
         .width(Size::Fill(1.0))
-        .height(Size::Fixed(88.0))
-        .fill(tokens::CARD)
-        .stroke(tokens::BORDER)
-        .radius(tokens::RADIUS_MD)
+        .height(Size::Fixed(88.0))])
 }
 
-fn card_row(card: &AudioCard, active_profile: Option<u32>) -> El {
+fn card_row(audio_card: &AudioCard, active_profile: Option<u32>) -> El {
     let active_label = active_profile
-        .and_then(|idx| card.profiles.iter().find(|p| p.index == idx))
+        .and_then(|idx| audio_card.profiles.iter().find(|p| p.index == idx))
         .map(|p| p.description.as_str())
         .unwrap_or("No active profile");
 
     let header = row([
         icon("settings").icon_size(20.0).width(Size::Fixed(32.0)),
         column([
-            text(&card.description).label(),
-            text(format!("#{id}  {name}", id = card.id, name = card.name))
-                .caption()
-                .muted()
-                .ellipsis(),
+            text(&audio_card.description).label(),
+            text(format!(
+                "#{id}  {name}",
+                id = audio_card.id,
+                name = audio_card.name
+            ))
+            .caption()
+            .muted()
+            .ellipsis(),
         ])
         .gap(tokens::SPACE_1)
         .width(Size::Fill(1.0)),
@@ -697,13 +680,13 @@ fn card_row(card: &AudioCard, active_profile: Option<u32>) -> El {
     .gap(tokens::SPACE_3)
     .align(Align::Center);
 
-    let profile_picker: El = if card.profiles.is_empty() {
+    let profile_picker: El = if audio_card.profiles.is_empty() {
         text("No profiles enumerated yet.").caption().muted()
     } else {
-        select_trigger(format!("profile:{}", card.id), active_label).width(Size::Fill(1.0))
+        select_trigger(format!("profile:{}", audio_card.id), active_label).width(Size::Fill(1.0))
     };
 
-    column([
+    card([
         header,
         row([
             text("Profile").label().muted().width(Size::Fixed(80.0)),
@@ -715,10 +698,6 @@ fn card_row(card: &AudioCard, active_profile: Option<u32>) -> El {
     ])
     .gap(tokens::SPACE_3)
     .padding(tokens::SPACE_3)
-    .width(Size::Fill(1.0))
-    .fill(tokens::CARD)
-    .stroke(tokens::BORDER)
-    .radius(tokens::RADIUS_MD)
 }
 
 fn volume_slider(id: u32, percent: u32, muted: bool) -> El {
@@ -839,15 +818,17 @@ pub fn slider_percent_from_x(rect: Rect, x: f32) -> u32 {
 
 /// Read-only "this is the default" indicator placed in the device-row
 /// action slot so the user doesn't mistake it for a clickable button.
+/// The badge sits centered inside the same fixed-width slot the
+/// "Set Default" button occupies, so the Mute column stays vertically
+/// aligned across rows regardless of which variant a row shows.
 fn default_indicator() -> El {
-    text("✓ default")
-        .label()
-        .center_text()
-        .text_color(tokens::PRIMARY)
+    row([badge("Default")])
+        .align(Align::Center)
+        .justify(Justify::Center)
 }
 
 fn empty_state(tab: Tab) -> El {
-    column([
+    card([
         icon("info")
             .icon_size(28.0)
             .text_color(tokens::MUTED_FOREGROUND),
@@ -863,10 +844,6 @@ fn empty_state(tab: Tab) -> El {
     .align(Align::Center)
     .justify(Justify::Center)
     .height(Size::Fixed(180.0))
-    .width(Size::Fill(1.0))
-    .fill(tokens::CARD)
-    .stroke(tokens::BORDER)
-    .radius(tokens::RADIUS_MD)
 }
 
 fn plural(n: usize, singular: &str, plural: &str) -> String {
@@ -973,26 +950,6 @@ mod tests {
         // both use a single-prefix-then-id key form.
         assert_eq!(stream_id_for_target_select("profile:42"), None);
         assert_eq!(stream_id_for_target_select("target:abc"), None);
-    }
-
-    #[test]
-    fn extract_target_name_from_json_only_accepts_braced_name() {
-        // Canonical JSON form (matches what `wpctl set-default` writes).
-        assert_eq!(
-            extract_target_name_from_json(r#"{"name":"alsa_output.foo"}"#),
-            Some("alsa_output.foo"),
-        );
-        // Whitespace tolerated.
-        assert_eq!(
-            extract_target_name_from_json(r#"{ "name": "alsa_output.foo" }"#),
-            Some("alsa_output.foo"),
-        );
-        // Bare strings are NOT accepted here — the serial path covers
-        // `Spa:Id`-style values, and a bare name without braces would
-        // be ambiguous with garbage.
-        assert_eq!(extract_target_name_from_json("alsa_output.bar"), None);
-        assert_eq!(extract_target_name_from_json(r#"{"serial":42}"#), None);
-        assert_eq!(extract_target_name_from_json(""), None);
     }
 
     fn profile_click_event(card_id: u32, suffix: &str) -> UiEvent {
