@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let app = VolumeApp::new(Box::new(DemoBackend)).with_active_tab(tab);
         let theme = app.theme();
         let mut tree = app.build(&BuildCx::new(&theme));
-        let bundle = render_bundle_themed(&mut tree, viewport, Some("aetna-volume/src"), &theme);
+        let bundle = render_bundle_themed(&mut tree, viewport, &theme);
         let basename = artifact_basename(tab);
         let written = write_bundle(&bundle, &out_dir, &basename)?;
         for path in &written {

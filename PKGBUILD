@@ -5,7 +5,7 @@
 # fetch a tagged release tarball instead of consuming $startdir.
 
 pkgname=aetna-volume
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='PipeWire volume control panel built with Aetna'
 arch=('x86_64')
