@@ -26,9 +26,9 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aetna-core"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64228c3b4554b29a10bc84d2dec64bcb75f70e0e0d93b242fb0af90706c9a88f"
+checksum = "73b9d47af42b9d61aac55152e97b6042617214ced70282e449d57d005d102d07"
 dependencies = [
  "aetna-fonts",
  "bytemuck",
@@ -37,8 +37,10 @@ dependencies = [
  "fdsm-ttf-parser",
  "image",
  "kurbo",
+ "lru",
  "lyon_tessellation",
  "nalgebra",
+ "rustc-hash 2.1.2",
  "swash",
  "ttf-parser",
  "usvg",
@@ -47,9 +49,9 @@ dependencies = [
 
 [[package]]
 name = "aetna-fonts"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3c16d5f7db0d82d690fc0b6c204570cbc9dd233a31ba45a3f796efff37c5d2f"
+checksum = "0119b7f647ae6e40ff0b0b438a081a5dc8839282f2eb811db5f0fe2fc4c3f562"
 dependencies = [
  "aetna-fonts-emoji",
  "aetna-fonts-inter",
@@ -83,7 +85,7 @@ checksum = "1af44d458ac64fdf6374444de07b5d13a79bb478da01258d965142f0a86e9cc9"
 
 [[package]]
 name = "aetna-volume"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aetna-core",
  "aetna-winit-wgpu",
@@ -95,9 +97,9 @@ dependencies = [
 
 [[package]]
 name = "aetna-wgpu"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b29b19a79069ee0970f03144595934f33f50fc793e2521e9fd86c99f5c06182f"
+checksum = "398d231fa60aba6931f4d968640919304dc9490c117738d408d20a62f5eb90f4"
 dependencies = [
  "aetna-core",
  "bytemuck",
@@ -109,12 +111,13 @@ dependencies = [
 
 [[package]]
 name = "aetna-winit-wgpu"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46e0b34d186462877a9f2a126b11fc0776fb1cc6c58c1b4b86d85f24cf760852"
+checksum = "173439f831e365834bd89ceb1ab5d21ec291139daedc1c661d86acf105eaddda"
 dependencies = [
  "aetna-core",
  "aetna-wgpu",
+ "open",
  "pollster",
  "wgpu",
  "winit",
@@ -1066,6 +1069,11 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash 0.2.0",
+]
 
 [[package]]
 name = "heck"
@@ -1111,6 +1119,25 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "is-docker"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "928bae27f42bc99b60d9ac7334e3a21d10ad8f1835a4e12ec3ec0464765ed1b3"
+dependencies = [
+ "once_cell",
+]
+
+[[package]]
+name = "is-wsl"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "173609498df190136aa7dea1a91db051746d339e18476eed5ca40521f02d7aa5"
+dependencies = [
+ "is-docker",
+ "once_cell",
 ]
 
 [[package]]
@@ -1330,6 +1357,15 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
+
+[[package]]
+name = "lru"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a860605968fce16869fd239cf4237a82f3ac470723415db603b0e8b6c8d4fb9"
+dependencies = [
+ "hashbrown 0.17.1",
+]
 
 [[package]]
 name = "lyon_geom"
@@ -1883,6 +1919,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "open"
+version = "5.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f3bab717c29a857abf75fcef718d441ec7cb2725f937343c734740a985d37fd"
+dependencies = [
+ "is-wsl",
+ "libc",
+ "pathdiff",
+]
+
+[[package]]
 name = "orbclient"
 version = "0.3.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1938,6 +1985,12 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
+name = "pathdiff"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
 name = "percent-encoding"

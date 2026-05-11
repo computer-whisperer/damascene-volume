@@ -1,12 +1,12 @@
 [package]
 name = "aetna-volume"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 default-run = "aetna-volume"
 
 [dependencies]
-aetna-core = "0.3.1"
-aetna-winit-wgpu = "0.3.1"
+aetna-core = "0.3.2"
+aetna-winit-wgpu = "0.3.2"
 anyhow = "1"
 pipewire = "0.9.2"
 rustix = { version = "1.1", features = ["process"] }

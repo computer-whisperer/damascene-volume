@@ -33,7 +33,7 @@ we can name PipeWire objects and routes correctly.
 cargo run
 ```
 
-Aetna is consumed from crates.io (currently `aetna-core`/`aetna-winit-wgpu` 0.3.1).
+Aetna is consumed from crates.io (currently `aetna-core`/`aetna-winit-wgpu` 0.3.2).
 
 ## Local install (Arch)
 
