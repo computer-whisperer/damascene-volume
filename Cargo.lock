@@ -86,7 +86,7 @@ checksum = "1af44d458ac64fdf6374444de07b5d13a79bb478da01258d965142f0a86e9cc9"
 
 [[package]]
 name = "aetna-volume"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "aetna-core",
  "aetna-winit-wgpu",
