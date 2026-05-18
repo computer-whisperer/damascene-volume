@@ -199,6 +199,14 @@ fn run_backend_loop(
     // `set_param(ParamType::Profile, ...)` when the user picks one.
     let devices: Rc<RefCell<HashMap<u32, DeviceEntry>>> = Rc::new(RefCell::new(HashMap::new()));
 
+    // Per-stream `target.object` values received from the `default`
+    // metadata before the matching stream node global has appeared in
+    // the registry. Drained into `AudioNode.target` when the node is
+    // registered. Without this, the property event that fires at bind
+    // time for streams that already have a routing override would be
+    // dropped on the floor when the stream came after the metadata.
+    let pending_targets: Rc<RefCell<HashMap<u32, String>>> = Rc::new(RefCell::new(HashMap::new()));
+
     let snapshot_for_global = snapshot.clone();
     let snapshot_for_remove = snapshot.clone();
     let proxies_for_global = proxies.clone();
@@ -209,14 +217,24 @@ fn run_backend_loop(
     let default_for_remove = default_metadata.clone();
     let devices_for_global = devices.clone();
     let devices_for_remove = devices.clone();
+    let pending_for_global = pending_targets.clone();
+    let pending_for_remove = pending_targets.clone();
     let registry_for_bind = registry.clone();
 
     let _registry_listener = registry
         .add_listener_local()
         .global(move |global| {
             let is_card = if let Ok(mut snap) = snapshot_for_global.lock() {
-                if let Some(node) = audio_node_from_global(global) {
+                if let Some(mut node) = audio_node_from_global(global) {
                     if !snap.nodes.iter().any(|existing| existing.id == node.id) {
+                        // Apply any `target.object` event the metadata
+                        // emitted before this node global arrived. The
+                        // metadata value is authoritative for routing
+                        // overrides — it overwrites whatever was on the
+                        // node's own props at registration time.
+                        if let Some(pending) = pending_for_global.borrow_mut().remove(&node.id) {
+                            node.target = Some(pending);
+                        }
                         snap.nodes.push(node);
                     }
                     false
@@ -300,33 +318,82 @@ fn run_backend_loop(
                     match registry_for_bind.bind::<pw::metadata::Metadata, _>(global) {
                         Ok(meta) => {
                             let snapshot_for_meta = snapshot_for_global.clone();
+                            let pending_for_meta = pending_for_global.clone();
                             let listener = meta
                                 .add_listener_local()
-                                .property(move |_subject, key, _type_, value| {
+                                .property(move |subject, key, _type_, value| {
                                     let Some(key) = key else {
-                                        // null key = all properties
-                                        // cleared. Drop both defaults.
+                                        // null key = every property for
+                                        // this subject cleared. For the
+                                        // global default subject that
+                                        // drops both default-device
+                                        // slots; for a stream subject it
+                                        // drops the routing override.
                                         if let Ok(mut snap) = snapshot_for_meta.lock() {
-                                            snap.default_sink_name = None;
-                                            snap.default_source_name = None;
+                                            if subject == 0 {
+                                                snap.default_sink_name = None;
+                                                snap.default_source_name = None;
+                                            } else if let Some(node) =
+                                                snap.nodes.iter_mut().find(|n| n.id == subject)
+                                            {
+                                                node.target = None;
+                                            }
+                                        }
+                                        pending_for_meta.borrow_mut().remove(&subject);
+                                        return 0;
+                                    };
+                                    if subject == 0 {
+                                        let is_sink = match key {
+                                            "default.audio.sink" => true,
+                                            "default.audio.source" => false,
+                                            _ => return 0,
+                                        };
+                                        let name = value
+                                            .and_then(|v| parse_name_json(v).map(str::to_string));
+                                        if let Ok(mut snap) = snapshot_for_meta.lock() {
+                                            if is_sink {
+                                                snap.default_sink_name = name;
+                                            } else {
+                                                snap.default_source_name = name;
+                                            }
                                         }
                                         return 0;
-                                    };
-                                    let target = match key {
-                                        "default.audio.sink" => Some(true),
-                                        "default.audio.source" => Some(false),
-                                        _ => None,
-                                    };
-                                    let Some(is_sink) = target else {
+                                    }
+                                    // Per-stream routing override. WP
+                                    // and modern clients write
+                                    // `target.object` as `Spa:Id` (bare
+                                    // serial) or `Spa:String:JSON`;
+                                    // legacy clients use `target.node`.
+                                    // `resolved_target_for_stream`
+                                    // already handles both shapes, so
+                                    // we pass the raw value through.
+                                    if key != "target.object" && key != "target.node" {
                                         return 0;
-                                    };
-                                    let name =
-                                        value.and_then(|v| parse_name_json(v).map(str::to_string));
-                                    if let Ok(mut snap) = snapshot_for_meta.lock() {
-                                        if is_sink {
-                                            snap.default_sink_name = name;
+                                    }
+                                    let raw = value.map(str::to_string);
+                                    let applied = if let Ok(mut snap) = snapshot_for_meta.lock() {
+                                        if let Some(node) =
+                                            snap.nodes.iter_mut().find(|n| n.id == subject)
+                                        {
+                                            node.target = raw.clone();
+                                            true
                                         } else {
-                                            snap.default_source_name = name;
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    };
+                                    let mut pending = pending_for_meta.borrow_mut();
+                                    if applied {
+                                        pending.remove(&subject);
+                                    } else {
+                                        match raw {
+                                            Some(v) => {
+                                                pending.insert(subject, v);
+                                            }
+                                            None => {
+                                                pending.remove(&subject);
+                                            }
                                         }
                                     }
                                     0
@@ -409,6 +476,7 @@ fn run_backend_loop(
             proxies_for_remove.borrow_mut().remove(&id);
             channels_for_remove.borrow_mut().remove(&id);
             devices_for_remove.borrow_mut().remove(&id);
+            pending_for_remove.borrow_mut().remove(&id);
             // Drop the cached default-metadata binding if its global went
             // away — the proxy is stale at that point and the next
             // `default`-named global to appear will re-bind cleanly.

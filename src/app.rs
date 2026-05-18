@@ -47,9 +47,10 @@ pub struct VolumeApp {
     pub profile_overrides: RefCell<HashMap<u32, u32>>,
     /// Per-stream optimistic target override, by stream id → either
     /// the picked device's `object.serial`, or `None` meaning "Default
-    /// (automatic routing)". WirePlumber's metadata server doesn't
-    /// echo `target.object` writes back to clients, so we never see a
-    /// confirmation event — the override sticks for the session.
+    /// (automatic routing)". Cleared by `resolved_target_for_stream`
+    /// once the live snapshot agrees, so an external `target.object`
+    /// change (e.g. pavucontrol re-routing the same stream) flows
+    /// through instead of staying masked by our own pick.
     pub target_overrides: RefCell<HashMap<u32, Option<u64>>>,
     /// Which card's profile dropdown is currently open. Single shared
     /// slot — only one menu can be open at a time and the click-outside
@@ -521,14 +522,12 @@ fn resolved_target_for_stream<'a>(
                 && matches!(n.class, AudioClass::Device { direction: d } if d == direction)
         })
     };
-    match app.target_overrides.borrow().get(&node.id).copied() {
-        Some(None) => None,
-        Some(Some(serial)) => device_with_serial(serial),
-        None => {
-            let raw = node.target.as_deref()?.trim();
-            if raw.is_empty() {
-                return None;
-            }
+    let snapshot_target = node
+        .target
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|raw| {
             if let Ok(serial) = raw.parse::<u64>() {
                 device_with_serial(serial)
             } else if let Some(name) = parse_name_json(raw) {
@@ -536,7 +535,26 @@ fn resolved_target_for_stream<'a>(
             } else {
                 None
             }
+        });
+    let override_val = app.target_overrides.borrow().get(&node.id).copied();
+    match override_val {
+        Some(o) => {
+            // Reconcile: if the live snapshot agrees with our optimistic
+            // pick (including the "Default" / unset case), drop the
+            // override and let snapshot drive future state — that way an
+            // external `target.object` change to the same stream isn't
+            // masked by our stale pick.
+            if o == snapshot_target.map(|n| n.serial) {
+                app.target_overrides.borrow_mut().remove(&node.id);
+                snapshot_target
+            } else {
+                match o {
+                    None => None,
+                    Some(serial) => device_with_serial(serial),
+                }
+            }
         }
+        None => snapshot_target,
     }
 }
 
