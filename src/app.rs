@@ -28,6 +28,18 @@ const WATERFALL_HEIGHT: u32 = 96;
 static APP_ICON: LazyLock<SvgIcon> =
     LazyLock::new(|| SvgIcon::parse(include_str!("../icon.svg")).expect("icon.svg parses"));
 
+/// Pin glyph shown next to a stream's target dropdown when the
+/// stream is pinned (has an explicit `target.object`) — vs the
+/// default-following state, which is the common case and gets no
+/// marker. Lucide-style strokes in a 24×24 viewBox, `currentColor`
+/// fill so [`El::text_color`] tints it.
+static PIN_ICON: LazyLock<SvgIcon> = LazyLock::new(|| {
+    SvgIcon::parse_current_color(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>"#,
+    )
+    .expect("pin icon svg parses")
+});
+
 pub struct VolumeApp {
     pub backend: Box<dyn AudioBackend>,
     pub active_tab: Tab,
@@ -47,7 +59,7 @@ pub struct VolumeApp {
     pub profile_overrides: RefCell<HashMap<u32, u32>>,
     /// Per-stream optimistic target override, by stream id → either
     /// the picked device's `object.serial`, or `None` meaning "Default
-    /// (automatic routing)". Cleared by `resolved_target_for_stream`
+    /// (automatic routing)". Cleared by [`resolve_stream_target`]
     /// once the live snapshot agrees, so an external `target.object`
     /// change (e.g. pavucontrol re-routing the same stream) flows
     /// through instead of staying masked by our own pick.
@@ -362,10 +374,25 @@ impl App for VolumeApp {
             && let Some(stream) = snapshot.nodes.iter().find(|n| n.id == stream_id)
             && let AudioClass::Stream { direction } = stream.class
         {
-            let mut options: Vec<(String, String)> = vec![(
-                TARGET_DEFAULT_VALUE.to_string(),
-                "Default — automatic".to_string(),
-            )];
+            // Annotate the "Default" option with the current default
+            // device's name, so picking it tells the user where the
+            // stream will land — and pre-warns them that switching
+            // the system default later will follow it here too.
+            let default_name = match direction {
+                Direction::Output => snapshot.default_sink_name.as_deref(),
+                Direction::Input => snapshot.default_source_name.as_deref(),
+            };
+            let default_label = default_name
+                .and_then(|name| {
+                    snapshot.nodes.iter().find(|n| {
+                        n.name == name
+                            && matches!(n.class, AudioClass::Device { direction: d } if d == direction)
+                    })
+                })
+                .map(|d| format!("Default — {}", d.description))
+                .unwrap_or_else(|| "Default — automatic".to_string());
+            let mut options: Vec<(String, String)> =
+                vec![(TARGET_DEFAULT_VALUE.to_string(), default_label)];
             options.extend(
                 snapshot
                     .nodes
@@ -468,8 +495,14 @@ fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
         nodes
             .into_iter()
             .map(|node| {
-                let target_label = matches!(node.class, AudioClass::Stream { .. })
-                    .then(|| target_label_for_stream(&snapshot, node, app));
+                let is_stream = matches!(node.class, AudioClass::Stream { .. });
+                let (target_label, target_pinned) = if is_stream {
+                    let resolved = resolve_stream_target(&snapshot, node, app);
+                    let label = format_target_label(&resolved);
+                    (Some(label), !resolved.following)
+                } else {
+                    (None, false)
+                };
                 node_row(
                     node,
                     app.percent_for(node),
@@ -477,6 +510,7 @@ fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
                     snapshot.is_default(node),
                     app.levels.borrow().level_for(node.id),
                     target_label,
+                    target_pinned,
                 )
             })
             .collect()
@@ -489,26 +523,72 @@ fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
     .gap(tokens::SPACE_3)
 }
 
-/// Resolve the visible label for a stream's target dropdown trigger.
-/// Optimistic override wins; otherwise fall back to the registry-time
-/// `target.object` value, which is whatever WirePlumber last wrote —
-/// typically a bare `object.serial` string for `Spa:Id` writes, or a
-/// `{"name":"..."}` JSON blob for older clients. Returns "Default"
-/// when no override is set or the target can't be resolved.
-fn target_label_for_stream(snapshot: &AudioSnapshot, node: &AudioNode, app: &VolumeApp) -> String {
-    resolved_target_for_stream(snapshot, node, app)
-        .map(|n| n.description.clone())
-        .unwrap_or_else(|| "Default".to_string())
+/// Resolved routing state for a stream's target dropdown trigger.
+/// `following` says whether the stream is configured to follow the
+/// session default (no `target.object` pin), so the UI can mark it
+/// clearly — if the system default changes, these are the streams
+/// that will move with it. `device` is what the label actually points
+/// at: the live link-graph peer when known (matches pavucontrol's
+/// "where is this stream actually playing through?"), falling back
+/// to the metadata pin or the system default device when there's no
+/// live link yet (paused stream, just registered, etc.).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StreamTarget<'a> {
+    /// True when the stream has no `target.object` pin (and the
+    /// optimistic override agrees). Drives the absence of the pin
+    /// icon in the row.
+    pub following: bool,
+    /// True when the stream *actually* tracks the system default —
+    /// i.e. it's following AND its resolved device is the current
+    /// `default.audio.sink` / `default.audio.source` for its
+    /// direction. False for the loopback exception (following but
+    /// session policy has diverted it to a non-default device), in
+    /// which case the row should NOT claim it'll move when the
+    /// default changes. Drives the "default →" tag on the trigger
+    /// label.
+    pub tracks_default: bool,
+    pub device: Option<&'a AudioNode>,
 }
 
-fn resolved_target_for_stream<'a>(
+/// Format the trigger label for a stream's target dropdown. The
+/// device name is always the live destination (matches pavucontrol);
+/// streams that actually track the system default get a "default →"
+/// prefix so the row reads as "this will move if the default
+/// changes". Streams that are following but session-policy-diverted
+/// (the loopback exception) get the device name alone — no prefix,
+/// because they *won't* track a default change. Pinned streams also
+/// get the device name alone; their pinned status is shown by the
+/// row's pin icon, not the label.
+pub(crate) fn format_target_label(resolved: &StreamTarget<'_>) -> String {
+    match resolved.device {
+        Some(d) if resolved.tracks_default => format!("default → {}", d.description),
+        Some(d) => d.description.clone(),
+        // Cold-start edge: nothing resolved yet. Don't claim a default
+        // tag we can't back up.
+        None => "Default".to_string(),
+    }
+}
+
+/// Test-only wrapper that goes through the same path as production.
+#[cfg(test)]
+fn target_label_for_stream(snapshot: &AudioSnapshot, node: &AudioNode, app: &VolumeApp) -> String {
+    format_target_label(&resolve_stream_target(snapshot, node, app))
+}
+
+pub(crate) fn resolve_stream_target<'a>(
     snapshot: &'a AudioSnapshot,
     node: &AudioNode,
     app: &VolumeApp,
-) -> Option<&'a AudioNode> {
+) -> StreamTarget<'a> {
     let direction = match &node.class {
         AudioClass::Stream { direction } => *direction,
-        _ => return None,
+        _ => {
+            return StreamTarget {
+                following: false,
+                tracks_default: false,
+                device: None,
+            };
+        }
     };
     let device_with_serial = |serial: u64| -> Option<&AudioNode> {
         snapshot.nodes.iter().find(|n| {
@@ -522,7 +602,25 @@ fn resolved_target_for_stream<'a>(
                 && matches!(n.class, AudioClass::Device { direction: d } if d == direction)
         })
     };
-    let snapshot_target = node
+    let device_with_id = |id: u32| -> Option<&AudioNode> {
+        snapshot.nodes.iter().find(|n| {
+            n.id == id
+                && matches!(n.class, AudioClass::Device { direction: d } if d == direction)
+        })
+    };
+    let default_device = || -> Option<&AudioNode> {
+        let name = match direction {
+            Direction::Output => snapshot.default_sink_name.as_deref(),
+            Direction::Input => snapshot.default_source_name.as_deref(),
+        };
+        name.and_then(device_with_name)
+    };
+
+    // The metadata pin — what `target.object` (or legacy `node.target`)
+    // requests for this stream. This is the *intent*, not where audio
+    // actually flows; a stream with no pin still routes somewhere via
+    // WirePlumber's default policy.
+    let metadata_target = node
         .target
         .as_deref()
         .map(str::trim)
@@ -536,25 +634,73 @@ fn resolved_target_for_stream<'a>(
                 None
             }
         });
+    // The live peer — the actual device this stream is linked to in
+    // the PipeWire graph, regardless of intent. Streams that fan out
+    // to multiple devices (rare; manual `pw-link` setups) get the
+    // first device-class peer; pavucontrol behaves the same way.
+    let live_peer = snapshot
+        .peers
+        .get(&node.id)
+        .and_then(|peer_ids| peer_ids.iter().copied().find_map(device_with_id));
+
     let override_val = app.target_overrides.borrow().get(&node.id).copied();
-    match override_val {
-        Some(o) => {
-            // Reconcile: if the live snapshot agrees with our optimistic
-            // pick (including the "Default" / unset case), drop the
-            // override and let snapshot drive future state — that way an
-            // external `target.object` change to the same stream isn't
-            // masked by our stale pick.
-            if o == snapshot_target.map(|n| n.serial) {
-                app.target_overrides.borrow_mut().remove(&node.id);
-                snapshot_target
-            } else {
-                match o {
-                    None => None,
-                    Some(serial) => device_with_serial(serial),
-                }
-            }
+
+    // Reconcile any optimistic override against the metadata pin —
+    // that's the only field our writes actually touch. Using the live
+    // peer here would mis-drop a "Default" override (`o == None`)
+    // immediately, because WirePlumber re-routes to *some* real
+    // device after the pin is cleared.
+    let metadata_pin_serial = metadata_target.map(|n| n.serial);
+    let active_override = match override_val {
+        Some(o) if o == metadata_pin_serial => {
+            app.target_overrides.borrow_mut().remove(&node.id);
+            None
         }
-        None => snapshot_target,
+        other => other,
+    };
+
+    let (following, device): (bool, Option<&AudioNode>) = match active_override {
+        Some(None) => (
+            true,
+            // Prefer the live peer over the configured default. They
+            // match for typical streams (Firefox → default sink). For
+            // the loopback exception they diverge: my-source has no
+            // pin, the system default IS my-sink, but session policy
+            // routes my-source to UMC202HD to avoid a self-loop —
+            // showing "my-sink" there would lie about routing (audio
+            // can't actually flow into my-sink without looping). Falls
+            // back to the configured default only when there's no
+            // live link yet (paused stream, mid-route).
+            live_peer.or_else(default_device),
+        ),
+        Some(Some(serial)) => (false, device_with_serial(serial)),
+        None => match metadata_target {
+            Some(pinned) => (
+                false,
+                // Pinned rows prefer the live peer too — if the pin
+                // has drifted off the actual routing, the live peer
+                // is the diagnostic the user cares about. Falls back
+                // to the pin when no live link exists yet.
+                live_peer.or(Some(pinned)),
+            ),
+            None => (true, live_peer.or_else(default_device)),
+        },
+    };
+
+    // The stream truly tracks the default only when it's both
+    // unpinned AND the resolved device IS the current default for
+    // this direction. The loopback-exception case (following but the
+    // live peer differs from the default sink) deliberately reads
+    // `tracks_default = false` so the UI doesn't claim my-source
+    // will move when the default does — it won't, because session
+    // policy will keep diverting it.
+    let tracks_default = following
+        && device.is_some_and(|d| default_device().is_some_and(|def| def.id == d.id));
+
+    StreamTarget {
+        following,
+        tracks_default,
+        device,
     }
 }
 
@@ -756,6 +902,7 @@ fn node_row(
     is_default: bool,
     levels: Option<NodeLevels>,
     target_label: Option<String>,
+    target_pinned: bool,
 ) -> El {
     let title = node
         .application
@@ -768,17 +915,33 @@ fn node_row(
     // "#id  target" caption; devices keep the caption with the
     // registry-time target string.
     let secondary: El = match &target_label {
-        Some(label) => row([
-            text(format!("#{id}", id = node.id))
-                .caption()
-                .mono()
-                .muted()
-                .width(Size::Fixed(48.0)),
-            select_trigger(format!("target:{}", node.id), label.clone()).width(Size::Fill(1.0)),
-        ])
-        .gap(tokens::SPACE_2)
-        .align(Align::Center)
-        .width(Size::Fill(1.0)),
+        Some(label) => {
+            // Pin marker sits between the id and the dropdown trigger
+            // when the stream is pinned. The slot is always present
+            // (fixed-width spacer when unpinned) so rows align
+            // vertically regardless of which streams are pinned.
+            let pin_slot: El = if target_pinned {
+                icon(PIN_ICON.clone())
+                    .icon_size(14.0)
+                    .text_color(tokens::PRIMARY)
+                    .width(Size::Fixed(16.0))
+            } else {
+                spacer().width(Size::Fixed(16.0)).height(Size::Fixed(1.0))
+            };
+            row([
+                text(format!("#{id}", id = node.id))
+                    .caption()
+                    .mono()
+                    .muted()
+                    .width(Size::Fixed(48.0)),
+                pin_slot,
+                select_trigger(format!("target:{}", node.id), label.clone())
+                    .width(Size::Fill(1.0)),
+            ])
+            .gap(tokens::SPACE_2)
+            .align(Align::Center)
+            .width(Size::Fill(1.0))
+        }
         None => text(format!(
             "#{id}  {target}",
             id = node.id,
@@ -1152,5 +1315,351 @@ mod tests {
             format!("profile:{card_id}:{suffix}")
         };
         UiEvent::synthetic_click(key)
+    }
+
+    /// Build a minimal snapshot: one output stream, one output device.
+    /// `target` and `peers` are filled in by the caller so each test
+    /// can exercise a specific combination of metadata vs. live links.
+    fn fixture_snapshot(stream_target: Option<&str>, peer_ids: Vec<u32>) -> AudioSnapshot {
+        let mut snap = AudioSnapshot::default();
+        snap.nodes.push(AudioNode {
+            id: 100,
+            serial: 7100,
+            class: AudioClass::Stream {
+                direction: Direction::Output,
+            },
+            name: "firefox".into(),
+            description: "Firefox".into(),
+            application: None,
+            media_name: None,
+            target: stream_target.map(str::to_string),
+            media_role: None,
+            volume: None,
+        });
+        snap.nodes.push(AudioNode {
+            id: 200,
+            serial: 7200,
+            class: AudioClass::Device {
+                direction: Direction::Output,
+            },
+            name: "alsa_output.physical".into(),
+            description: "Physical Speakers".into(),
+            application: None,
+            media_name: None,
+            target: None,
+            media_role: None,
+            volume: None,
+        });
+        if !peer_ids.is_empty() {
+            snap.peers.insert(100, peer_ids);
+        }
+        snap
+    }
+
+    fn fixture_app() -> VolumeApp {
+        use crate::backend::DemoBackend;
+        VolumeApp::new(Box::new(DemoBackend))
+    }
+
+    #[test]
+    fn live_peer_resolves_when_no_metadata_pin() {
+        // Reproduces the my-source case from the bug report: a stream
+        // with no `target.object` but a live link to a physical sink.
+        // The label shows the live destination, and `following=true`
+        // tells the UI to suppress the pin icon (the row's "this is
+        // pinned, won't move with default" signal).
+        let snap = fixture_snapshot(None, vec![200]);
+        let app = fixture_app();
+        let stream = &snap.nodes[0];
+        let resolved = resolve_stream_target(&snap, stream, &app);
+        assert_eq!(resolved.device.map(|n| n.id), Some(200));
+        assert!(resolved.following, "no metadata pin → following default");
+        assert_eq!(
+            target_label_for_stream(&snap, stream, &app),
+            "Physical Speakers"
+        );
+    }
+
+    #[test]
+    fn live_peer_takes_priority_over_metadata_pin() {
+        // If the metadata pin is stale (points to a device the stream
+        // is no longer linked to), the displayed label should follow
+        // the live graph — that's the source of truth pavucontrol
+        // shows, and it's what users actually care about.
+        let mut snap = fixture_snapshot(Some("9999"), vec![200]);
+        snap.nodes.push(AudioNode {
+            id: 300,
+            serial: 9999,
+            class: AudioClass::Device {
+                direction: Direction::Output,
+            },
+            name: "alsa_output.other".into(),
+            description: "Other Output".into(),
+            application: None,
+            media_name: None,
+            target: None,
+            media_role: None,
+            volume: None,
+        });
+        let app = fixture_app();
+        let resolved = resolve_stream_target(&snap, &snap.nodes[0], &app);
+        assert_eq!(resolved.device.map(|n| n.id), Some(200));
+    }
+
+    #[test]
+    fn metadata_pin_used_when_no_live_peer() {
+        // A registered-but-unlinked stream (paused, or briefly
+        // mid-route) should still show its pinned destination instead
+        // of falling all the way back to "Default".
+        let snap = fixture_snapshot(Some("7200"), vec![]);
+        let app = fixture_app();
+        let resolved = resolve_stream_target(&snap, &snap.nodes[0], &app);
+        assert_eq!(resolved.device.map(|n| n.id), Some(200));
+    }
+
+    #[test]
+    fn default_override_is_not_dropped_by_live_peer_alone() {
+        // Picking "Default" stores `target_overrides[id] = None`. The
+        // live peer will keep showing a physical device because
+        // WirePlumber's default policy routes there — that must not
+        // trick reconciliation into dropping the override. The pick
+        // is reconciled against the metadata pin, which we just
+        // cleared.
+        let snap = fixture_snapshot(None, vec![200]);
+        let app = fixture_app();
+        app.target_overrides.borrow_mut().insert(100, None);
+        let resolved = resolve_stream_target(&snap, &snap.nodes[0], &app);
+        assert_eq!(resolved.device.map(|n| n.id), Some(200));
+        // Override was satisfied (metadata pin is None, matches our
+        // pick) so it should have been dropped — future external
+        // routing changes flow through.
+        assert!(!app.target_overrides.borrow().contains_key(&100));
+    }
+
+    #[test]
+    fn explicit_override_overrides_live_peer_until_reconciled() {
+        // User picks device 300; the metadata write hasn't propagated
+        // yet and the live link still points at device 200. The
+        // optimistic override should win so the label updates
+        // immediately on click instead of lagging.
+        let mut snap = fixture_snapshot(None, vec![200]);
+        snap.nodes.push(AudioNode {
+            id: 300,
+            serial: 9300,
+            class: AudioClass::Device {
+                direction: Direction::Output,
+            },
+            name: "alsa_output.headphones".into(),
+            description: "Headphones".into(),
+            application: None,
+            media_name: None,
+            target: None,
+            media_role: None,
+            volume: None,
+        });
+        let app = fixture_app();
+        app.target_overrides.borrow_mut().insert(100, Some(9300));
+        let resolved = resolve_stream_target(&snap, &snap.nodes[0], &app);
+        assert_eq!(resolved.device.map(|n| n.id), Some(300));
+        // Override hasn't been satisfied yet (metadata still empty)
+        // so it must persist for subsequent frames.
+        assert!(app.target_overrides.borrow().contains_key(&100));
+    }
+
+    #[test]
+    fn pinned_stream_is_marked_following_false() {
+        // Streams with a `target.object` pin are *not* following the
+        // session default — moving the default later won't move them.
+        // The label itself is just the device name (same as for
+        // following streams); the distinction is carried by the
+        // `following` flag (drives the pin icon) and the absence of
+        // `tracks_default` (no "default →" tag even when the pinned
+        // device happens to also be the system default).
+        let mut snap = fixture_snapshot(Some("7200"), vec![200]);
+        // Set the default to the same device the stream is pinned to
+        // — `tracks_default` must still be false because the stream
+        // wouldn't *move* if the default changed, it's nailed down.
+        snap.default_sink_name = Some("alsa_output.physical".into());
+        let app = fixture_app();
+        let stream = &snap.nodes[0];
+        let resolved = resolve_stream_target(&snap, stream, &app);
+        assert!(!resolved.following, "metadata pin → not following default");
+        assert!(
+            !resolved.tracks_default,
+            "pinned streams never carry the 'default →' tag, even when pinned to the default device"
+        );
+        assert_eq!(
+            target_label_for_stream(&snap, stream, &app),
+            "Physical Speakers"
+        );
+    }
+
+    #[test]
+    fn following_with_no_live_peer_falls_back_to_system_default() {
+        // Stream has no pin and no live link yet (e.g. paused / just
+        // registered). The trigger should still tell the user where
+        // the stream is *configured* to end up — the current system
+        // default device — so they can decide whether to leave it
+        // alone or pin it. Without this we'd render bare "Default",
+        // losing the prior version's signal.
+        let mut snap = fixture_snapshot(None, vec![]);
+        snap.default_sink_name = Some("alsa_output.physical".into());
+        let app = fixture_app();
+        let stream = &snap.nodes[0];
+        let resolved = resolve_stream_target(&snap, stream, &app);
+        assert!(resolved.following);
+        assert!(
+            resolved.tracks_default,
+            "resolved device IS the system default → label gets the 'default →' tag"
+        );
+        assert_eq!(resolved.device.map(|n| n.id), Some(200));
+        assert_eq!(
+            target_label_for_stream(&snap, stream, &app),
+            "default → Physical Speakers"
+        );
+    }
+
+    #[test]
+    fn following_with_no_peer_and_no_default_renders_bare_default() {
+        // Cold-start edge case: stream is following default, has no
+        // live link, and we haven't received the default-sink event
+        // yet. Bare "Default" is the only honest thing to show.
+        let snap = fixture_snapshot(None, vec![]);
+        let app = fixture_app();
+        let stream = &snap.nodes[0];
+        let resolved = resolve_stream_target(&snap, stream, &app);
+        assert!(resolved.following);
+        assert!(resolved.device.is_none());
+        assert_eq!(target_label_for_stream(&snap, stream, &app), "Default");
+    }
+
+    #[test]
+    fn following_diverged_stream_does_not_get_default_tag() {
+        // The whole reason `tracks_default` exists: my-source is
+        // following default (no `target.object`), but session policy
+        // has routed it to a non-default device to avoid a self-loop.
+        // Changing the system default will NOT move my-source — the
+        // policy will keep diverting it — so the row must not carry
+        // the "default →" tag that claims it would.
+        let mut snap = fixture_snapshot(None, vec![200]);
+        snap.default_sink_name = Some("loopback_sink".into());
+        snap.nodes.push(AudioNode {
+            id: 400,
+            serial: 7400,
+            class: AudioClass::Device {
+                direction: Direction::Output,
+            },
+            name: "loopback_sink".into(),
+            description: "my-sink".into(),
+            application: None,
+            media_name: None,
+            target: None,
+            media_role: None,
+            volume: None,
+        });
+        let app = fixture_app();
+        let resolved = resolve_stream_target(&snap, &snap.nodes[0], &app);
+        assert!(resolved.following, "no pin → following");
+        assert!(
+            !resolved.tracks_default,
+            "peer (Physical Speakers) ≠ default (my-sink) → no 'default →' tag"
+        );
+        assert_eq!(
+            target_label_for_stream(&snap, &snap.nodes[0], &app),
+            "Physical Speakers"
+        );
+    }
+
+    #[test]
+    fn following_label_shows_live_peer_when_it_diverges_from_default() {
+        // The loopback playback-half case: my-source is following
+        // default (no `target.object`), the system default sink is
+        // my-sink, but session policy routes it to a physical device
+        // to avoid a self-loop. The label must show the *live peer*,
+        // not the configured default — showing "my-sink" here would
+        // be a lie about routing (audio can't actually loop into
+        // my-sink). The unpinned status is communicated by the row's
+        // missing pin icon, not by the label string.
+        let mut snap = fixture_snapshot(None, vec![200]);
+        snap.default_sink_name = Some("loopback_sink".into());
+        snap.nodes.push(AudioNode {
+            id: 400,
+            serial: 7400,
+            class: AudioClass::Device {
+                direction: Direction::Output,
+            },
+            name: "loopback_sink".into(),
+            description: "my-sink".into(),
+            application: None,
+            media_name: None,
+            target: None,
+            media_role: None,
+            volume: None,
+        });
+        let app = fixture_app();
+        let stream = &snap.nodes[0];
+        let resolved = resolve_stream_target(&snap, stream, &app);
+        assert!(resolved.following);
+        assert_eq!(
+            resolved.device.map(|n| n.id),
+            Some(200),
+            "live peer (Physical Speakers) wins over the configured default (my-sink) — the latter would be circular"
+        );
+        assert_eq!(
+            target_label_for_stream(&snap, stream, &app),
+            "Physical Speakers"
+        );
+    }
+
+    #[test]
+    fn input_streams_follow_default_source_not_sink() {
+        // Direction matters: a recording stream that's following
+        // default needs the system *source* default, not the sink
+        // default. Wiring them up backwards would always render the
+        // wrong fallback label for mic streams.
+        let mut snap = AudioSnapshot {
+            default_sink_name: Some("not_a_real_source".into()),
+            default_source_name: Some("alsa_input.mic".into()),
+            ..AudioSnapshot::default()
+        };
+        snap.nodes.push(AudioNode {
+            id: 50,
+            serial: 5050,
+            class: AudioClass::Stream {
+                direction: Direction::Input,
+            },
+            name: "obs-capture".into(),
+            description: "OBS Studio".into(),
+            application: None,
+            media_name: None,
+            target: None,
+            media_role: None,
+            volume: None,
+        });
+        snap.nodes.push(AudioNode {
+            id: 60,
+            serial: 6060,
+            class: AudioClass::Device {
+                direction: Direction::Input,
+            },
+            name: "alsa_input.mic".into(),
+            description: "Studio Mic".into(),
+            application: None,
+            media_name: None,
+            target: None,
+            media_role: None,
+            volume: None,
+        });
+        let app = fixture_app();
+        let resolved = resolve_stream_target(&snap, &snap.nodes[0], &app);
+        assert!(
+            resolved.tracks_default,
+            "resolved device IS the default source → 'default →' tag applies"
+        );
+        assert_eq!(resolved.device.map(|n| n.id), Some(60));
+        assert_eq!(
+            target_label_for_stream(&snap, &snap.nodes[0], &app),
+            "default → Studio Mic"
+        );
     }
 }

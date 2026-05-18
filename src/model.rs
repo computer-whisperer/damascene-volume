@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -156,6 +157,17 @@ pub struct AudioSnapshot {
     pub default_sink_name: Option<String>,
     /// `node.name` of the current default audio source.
     pub default_source_name: Option<String>,
+    /// Live link-graph adjacency, keyed by node id → distinct peer
+    /// node ids. Built from PipeWire `Link` globals, with bidirectional
+    /// edges (a link from `out` to `in` produces both `peers[out]` ∋
+    /// `in` and `peers[in]` ∋ `out`). Lets the UI show a stream's
+    /// actual playback destination instead of just the requested one:
+    /// WirePlumber routes streams with no `target.object` to a real
+    /// device, and pavucontrol shows that device — without peers we
+    /// could only label such streams "Default". Duplicate per-channel
+    /// links (FL + FR between the same nodes) are collapsed.
+    #[serde(default)]
+    pub peers: HashMap<u32, Vec<u32>>,
 }
 
 impl AudioSnapshot {
@@ -367,6 +379,12 @@ impl AudioSnapshot {
                     ],
                 },
             ],
+            // Demo intentionally leaves the live link graph empty.
+            // Every demo stream sets `target`, so the metadata-pin
+            // fallback in `resolved_target_for_stream` is what's
+            // exercised by golden fixtures; populating `peers` here
+            // would mask regressions in that path.
+            peers: HashMap::new(),
             error: None,
         }
     }

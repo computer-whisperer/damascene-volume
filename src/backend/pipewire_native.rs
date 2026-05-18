@@ -207,6 +207,15 @@ fn run_backend_loop(
     // dropped on the floor when the stream came after the metadata.
     let pending_targets: Rc<RefCell<HashMap<u32, String>>> = Rc::new(RefCell::new(HashMap::new()));
 
+    // Live link graph, keyed by the Link's own global id → (output
+    // node, input node). Maintained as a side table so we can rebuild
+    // `snapshot.peers` cleanly on each add/remove, instead of trying
+    // to refcount distinct port-level links between the same pair of
+    // nodes (FL + FR between a stream and a sink show up as two Link
+    // globals; collapsing them down to one peer edge is the rebuild's
+    // job).
+    let links: Rc<RefCell<HashMap<u32, (u32, u32)>>> = Rc::new(RefCell::new(HashMap::new()));
+
     let snapshot_for_global = snapshot.clone();
     let snapshot_for_remove = snapshot.clone();
     let proxies_for_global = proxies.clone();
@@ -219,6 +228,8 @@ fn run_backend_loop(
     let devices_for_remove = devices.clone();
     let pending_for_global = pending_targets.clone();
     let pending_for_remove = pending_targets.clone();
+    let links_for_global = links.clone();
+    let links_for_remove = links.clone();
     let registry_for_bind = registry.clone();
 
     let _registry_listener = registry
@@ -412,6 +423,23 @@ fn run_backend_loop(
                 }
             }
 
+            if global.type_ == pw::types::ObjectType::Link
+                && let Some(props) = global.props.as_ref().map(|p| p.as_ref())
+            {
+                // PipeWire publishes the endpoints as decimal strings
+                // in the registry props. We only need the node-level
+                // adjacency, not per-port detail, so the port keys are
+                // ignored.
+                let out = prop(props, "link.output.node").and_then(|s| s.parse::<u32>().ok());
+                let inp = prop(props, "link.input.node").and_then(|s| s.parse::<u32>().ok());
+                if let (Some(out), Some(inp)) = (out, inp) {
+                    links_for_global.borrow_mut().insert(global.id, (out, inp));
+                    if let Ok(mut snap) = snapshot_for_global.lock() {
+                        rebuild_peers(&mut snap.peers, &links_for_global.borrow());
+                    }
+                }
+            }
+
             if global.type_ == pw::types::ObjectType::Node {
                 if let Some(props) = global.props.as_ref()
                     && is_internal_aetna_node(props)
@@ -469,9 +497,17 @@ fn run_backend_loop(
             }
         })
         .global_remove(move |id| {
+            // Globals can be of any type — there's no `type_` here to
+            // narrow on, so we just probe every per-type table. A
+            // missing id is a no-op on each; cheap, and avoids the
+            // alternative of tracking id→type ourselves.
+            let link_dropped = links_for_remove.borrow_mut().remove(&id).is_some();
             if let Ok(mut snap) = snapshot_for_remove.lock() {
                 snap.nodes.retain(|n| n.id != id);
                 snap.cards.retain(|c| c.id != id);
+                if link_dropped {
+                    rebuild_peers(&mut snap.peers, &links_for_remove.borrow());
+                }
             }
             proxies_for_remove.borrow_mut().remove(&id);
             channels_for_remove.borrow_mut().remove(&id);
@@ -882,6 +918,26 @@ fn pipewire_init() {
     INIT.call_once(pw::init);
 }
 
+/// Rebuild the snapshot's `peers` map from scratch off the current
+/// link table. Cheaper than the alternative (per-edge refcounting):
+/// link counts are small (tens, not thousands) and rebuilds happen
+/// only on graph-shape changes, not on every audio frame. Edges are
+/// bidirectional so a single lookup by stream id finds its peer
+/// device, and a lookup by device id finds incoming streams.
+fn rebuild_peers(peers: &mut HashMap<u32, Vec<u32>>, links: &HashMap<u32, (u32, u32)>) {
+    peers.clear();
+    for &(out, inp) in links.values() {
+        let out_peers = peers.entry(out).or_default();
+        if !out_peers.contains(&inp) {
+            out_peers.push(inp);
+        }
+        let in_peers = peers.entry(inp).or_default();
+        if !in_peers.contains(&out) {
+            in_peers.push(out);
+        }
+    }
+}
+
 fn audio_node_from_global<P>(global: &pw::registry::GlobalObject<P>) -> Option<AudioNode>
 where
     P: AsRef<pw::spa::utils::dict::DictRef>,
@@ -988,4 +1044,50 @@ fn is_internal_aetna_node(props: &pw::spa::utils::dict::DictRef) -> bool {
         || prop(props, "application.name")
             .map(|name| name == "aetna-volume")
             .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rebuild_peers_dedupes_parallel_port_links() {
+        // FL + FR between the same stream/sink show up as two Link
+        // globals. The collapsed adjacency should list the peer once.
+        let mut links: HashMap<u32, (u32, u32)> = HashMap::new();
+        links.insert(500, (10, 20)); // stream→sink, FL
+        links.insert(501, (10, 20)); // stream→sink, FR
+        let mut peers: HashMap<u32, Vec<u32>> = HashMap::new();
+        rebuild_peers(&mut peers, &links);
+        assert_eq!(peers.get(&10), Some(&vec![20]));
+        assert_eq!(peers.get(&20), Some(&vec![10]));
+    }
+
+    #[test]
+    fn rebuild_peers_handles_multiple_distinct_edges() {
+        // A stream linked to two sinks (rare but legal — manual
+        // pw-link, or a duplicating filter) should list both peers.
+        let mut links: HashMap<u32, (u32, u32)> = HashMap::new();
+        links.insert(500, (10, 20));
+        links.insert(501, (10, 30));
+        let mut peers: HashMap<u32, Vec<u32>> = HashMap::new();
+        rebuild_peers(&mut peers, &links);
+        let stream_peers = peers.get(&10).expect("stream has peers");
+        assert_eq!(stream_peers.len(), 2);
+        assert!(stream_peers.contains(&20));
+        assert!(stream_peers.contains(&30));
+        assert_eq!(peers.get(&20), Some(&vec![10]));
+        assert_eq!(peers.get(&30), Some(&vec![10]));
+    }
+
+    #[test]
+    fn rebuild_peers_clears_stale_entries() {
+        // Rebuilding off an empty link table must wipe the prior
+        // graph — otherwise removed links would leave ghost edges.
+        let mut peers: HashMap<u32, Vec<u32>> = HashMap::new();
+        peers.insert(10, vec![20]);
+        peers.insert(20, vec![10]);
+        rebuild_peers(&mut peers, &HashMap::new());
+        assert!(peers.is_empty());
+    }
 }
