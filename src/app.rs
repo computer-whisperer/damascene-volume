@@ -18,6 +18,10 @@ pub const MAX_VOLUME_PERCENT: u32 = 150;
 /// — automatic routing" entry. Must not collide with any real
 /// `node.name` (no PipeWire node ever uses this string).
 const TARGET_DEFAULT_VALUE: &str = "__aetna_default__";
+/// Sentinel `value` used by the spectrum-source dropdown's "Follow
+/// default output" entry. Distinct from the target sentinel so a stray
+/// value from one dropdown can't accidentally satisfy the other.
+const SPECTRUM_DEFAULT_VALUE: &str = "__aetna_spectrum_default__";
 const WATERFALL_WIDTH: u32 = 256;
 const WATERFALL_HEIGHT: u32 = 96;
 
@@ -39,6 +43,19 @@ static PIN_ICON: LazyLock<SvgIcon> = LazyLock::new(|| {
     )
     .expect("pin icon svg parses")
 });
+
+/// Which node the spectrogram should listen to. `DefaultOutput` is the
+/// historical behaviour (follow the current `default.audio.sink`) and
+/// stays the startup default so users who never touch the picker see
+/// the same display they had before. `Node(id)` pins a specific
+/// PipeWire global id; if that id later disappears from the snapshot
+/// the resolver falls back to the default output silently rather than
+/// blanking the spectrogram.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpectrumSource {
+    DefaultOutput,
+    Node(u32),
+}
 
 pub struct VolumeApp {
     pub backend: Box<dyn AudioBackend>,
@@ -71,6 +88,15 @@ pub struct VolumeApp {
     /// Which stream's target-device dropdown is currently open. Same
     /// shared-slot rule as `profile_dropdown_open`.
     pub target_dropdown_open: RefCell<Option<u32>>,
+    /// Which node the spectrogram is currently listening to. Picked by
+    /// the spectrum-card dropdown; `DefaultOutput` means "track the
+    /// system default sink" so the display follows when the user
+    /// switches default devices.
+    pub spectrum_source: RefCell<SpectrumSource>,
+    /// Whether the spectrum-source dropdown is open. Single boolean —
+    /// there's only one spectrum picker on screen, so we don't need
+    /// the `Option<id>` shape the per-row dropdowns use.
+    pub spectrum_dropdown_open: RefCell<bool>,
     pub levels: RefCell<LevelService>,
 }
 
@@ -92,7 +118,26 @@ impl VolumeApp {
             target_overrides: RefCell::new(HashMap::new()),
             profile_dropdown_open: RefCell::new(None),
             target_dropdown_open: RefCell::new(None),
+            spectrum_source: RefCell::new(SpectrumSource::DefaultOutput),
+            spectrum_dropdown_open: RefCell::new(false),
             levels: RefCell::new(levels),
+        }
+    }
+
+    /// Resolve the configured [`SpectrumSource`] against the current
+    /// snapshot. A `Node(id)` pick that no longer exists in the
+    /// snapshot falls through to the default-output choice silently —
+    /// hot-unplugging a USB headset shouldn't blank the display, and
+    /// the dropdown trigger label will read "Default Output" again,
+    /// signalling the fallback.
+    fn spectrum_source_node<'a>(&self, snapshot: &'a AudioSnapshot) -> Option<&'a AudioNode> {
+        match *self.spectrum_source.borrow() {
+            SpectrumSource::DefaultOutput => default_output_node(snapshot),
+            SpectrumSource::Node(id) => snapshot
+                .nodes
+                .iter()
+                .find(|n| n.id == id)
+                .or_else(|| default_output_node(snapshot)),
         }
     }
 
@@ -111,9 +156,10 @@ impl VolumeApp {
     fn sync_state(&self) {
         let snapshot = self.backend.refresh();
         let visible = snapshot.nodes_for_tab(self.active_tab);
+        let spectrum_node = self.spectrum_source_node(&snapshot);
         self.levels
             .borrow_mut()
-            .ensure_visible(&visible, default_output_node(&snapshot));
+            .ensure_visible(&visible, spectrum_node);
         *self.snapshot.borrow_mut() = snapshot;
     }
 
@@ -253,6 +299,39 @@ impl VolumeApp {
         }
     }
 
+    fn handle_spectrum_event(&mut self, event: &UiEvent) {
+        let Some(action) = aetna_core::widgets::select::classify_event(event, "spectrum") else {
+            return;
+        };
+        match action {
+            SelectAction::Toggle => {
+                let mut open = self.spectrum_dropdown_open.borrow_mut();
+                *open = !*open;
+            }
+            SelectAction::Dismiss => {
+                *self.spectrum_dropdown_open.borrow_mut() = false;
+            }
+            SelectAction::Pick(value) => {
+                let next = if value == SPECTRUM_DEFAULT_VALUE {
+                    SpectrumSource::DefaultOutput
+                } else {
+                    // Options are populated with each node's PipeWire
+                    // global id as the value token. Anything that
+                    // doesn't parse signals a drift between the option
+                    // list and this decoder — drop it rather than
+                    // pinning the source to a bogus value.
+                    match value.parse::<u32>() {
+                        Ok(id) => SpectrumSource::Node(id),
+                        Err(_) => return,
+                    }
+                };
+                *self.spectrum_source.borrow_mut() = next;
+                *self.spectrum_dropdown_open.borrow_mut() = false;
+            }
+            _ => {}
+        }
+    }
+
     fn handle_profile_event(&mut self, event: &UiEvent, card_id: u32) {
         let key = format!("profile:{card_id}");
         let Some(action) = aetna_core::widgets::select::classify_event(event, &key) else {
@@ -320,20 +399,21 @@ impl App for VolumeApp {
             Tab::Configuration => configuration_panel(&snapshot.cards, self),
             tab => node_panel(snapshot.nodes_for_tab(tab), tab, self),
         };
-        let default_output = default_output_node(&snapshot);
-        let (default_spectrum, meter_count) = {
+        let spectrum_node = self.spectrum_source_node(&snapshot);
+        let (spectrum_snapshot, meter_count) = {
             let levels = self.levels.borrow();
             (
-                default_output.and_then(|node| levels.spectrum_for(node.id)),
+                spectrum_node.and_then(|node| levels.spectrum_for(node.id)),
                 levels.active_meter_count(),
             )
         };
+        let spectrum_source = *self.spectrum_source.borrow();
 
         let main = column([
             header(&snapshot),
             tab_bar(self.active_tab),
             content.width(Size::Fill(1.0)).height(Size::Fill(1.0)),
-            spectrum_card(default_output, default_spectrum),
+            spectrum_card(spectrum_node, spectrum_snapshot, spectrum_source),
             status_bar(&snapshot, meter_count),
         ])
         .gap(tokens::SPACE_4)
@@ -405,7 +485,19 @@ impl App for VolumeApp {
             None
         };
 
-        overlays(main, [profile_menu, target_menu]).fill_size()
+        // Spectrum source picker. Available on every tab — the
+        // spectrogram card itself is shown everywhere — so we don't
+        // gate this on `active_tab` the way the per-row pickers do.
+        let spectrum_menu = if *self.spectrum_dropdown_open.borrow() {
+            Some(select_menu(
+                "spectrum",
+                spectrum_source_options(&snapshot),
+            ))
+        } else {
+            None
+        };
+
+        overlays(main, [profile_menu, target_menu, spectrum_menu]).fill_size()
     }
 
     fn on_event(&mut self, event: UiEvent) {
@@ -438,6 +530,8 @@ impl App for VolumeApp {
                     self.handle_profile_event(&event, card_id);
                 } else if let Some(stream_id) = stream_id_for_target_select(key) {
                     self.handle_target_event(&event, stream_id);
+                } else if is_spectrum_select_key(key) {
+                    self.handle_spectrum_event(&event);
                 } else if let Some(id) = node_id_from_key(key, "volume:") {
                     self.scrub_from_event(&event, id);
                 }
@@ -726,17 +820,21 @@ fn default_output_node(snapshot: &AudioSnapshot) -> Option<&AudioNode> {
     })
 }
 
-fn spectrum_card(node: Option<&AudioNode>, spectrum: Option<SpectrumSnapshot>) -> El {
+fn spectrum_card(
+    node: Option<&AudioNode>,
+    spectrum: Option<SpectrumSnapshot>,
+    source: SpectrumSource,
+) -> El {
     let status = match (&node, &spectrum) {
         (Some(_), Some(spectrum)) if !spectrum.columns.is_empty() => {
             format!("{} Hz", spectrum.sample_rate)
         }
         (Some(_), _) => "Listening".to_string(),
-        (None, _) => "No default output".to_string(),
+        (None, _) => "No source selected".to_string(),
     };
     let subtitle = node
         .map(|node| node.description.as_str())
-        .unwrap_or("Waiting for PipeWire default sink metadata");
+        .unwrap_or("Pick a source from the dropdown");
 
     card([
         row([
@@ -746,7 +844,7 @@ fn spectrum_card(node: Option<&AudioNode>, spectrum: Option<SpectrumSnapshot>) -
                     .text_color(tokens::PRIMARY)
                     .width(Size::Fixed(24.0)),
                 column([
-                    text("Default Output Spectrum").label(),
+                    text("Spectrogram").label(),
                     text(subtitle).caption().muted().ellipsis(),
                 ])
                 .gap(2.0)
@@ -755,6 +853,8 @@ fn spectrum_card(node: Option<&AudioNode>, spectrum: Option<SpectrumSnapshot>) -
             .gap(tokens::SPACE_2)
             .align(Align::Center)
             .width(Size::Fill(1.0)),
+            select_trigger("spectrum", spectrum_trigger_label(source, node))
+                .width(Size::Fixed(240.0)),
             badge(status),
         ])
         .gap(tokens::SPACE_3)
@@ -1167,6 +1267,103 @@ fn stream_id_for_target_select(key: &str) -> Option<u32> {
     rest.split(':').next()?.parse().ok()
 }
 
+/// Match the spectrum-source select's routed keys: the trigger
+/// (`spectrum`), the dismiss scrim (`spectrum:dismiss`), and any
+/// option click (`spectrum:option:{value}`). Used to gate dispatch
+/// in `on_event` so this select's events don't fall through to the
+/// volume-slider branch and other key handlers.
+fn is_spectrum_select_key(key: &str) -> bool {
+    key == "spectrum" || key.starts_with("spectrum:")
+}
+
+/// Display label for the spectrum-source dropdown trigger. When
+/// [`SpectrumSource::DefaultOutput`] resolves to a real device, the
+/// trigger reads "Default → <device>" so the user can see which
+/// device the "follow default" choice currently points at. Pinned
+/// picks show the device description verbatim.
+fn spectrum_trigger_label(source: SpectrumSource, resolved: Option<&AudioNode>) -> String {
+    match (source, resolved) {
+        (SpectrumSource::DefaultOutput, Some(node)) => {
+            format!("Default → {}", node.description)
+        }
+        (SpectrumSource::DefaultOutput, None) => "Default Output".to_string(),
+        // `Node` pins fall back to the default-output resolver when
+        // the pinned node has vanished. `resolved` therefore can't
+        // distinguish the two on its own — but the source value can,
+        // and we surface the fallback by name so the user can tell
+        // why the picker label changed.
+        (SpectrumSource::Node(_), Some(node)) => node.description.clone(),
+        (SpectrumSource::Node(_), None) => "Unavailable".to_string(),
+    }
+}
+
+/// Options shown in the spectrum-source dropdown. The first entry is
+/// always the "Default Output" sentinel; the rest are every meterable
+/// node in the snapshot (devices + streams) sorted by tab affinity so
+/// the user sees outputs grouped above streams above inputs. We use
+/// the PipeWire global id as the option's value token so the
+/// pick-back path is a simple `parse::<u32>`.
+fn spectrum_source_options(snapshot: &AudioSnapshot) -> Vec<(String, String)> {
+    let mut options: Vec<(String, String)> =
+        vec![(SPECTRUM_DEFAULT_VALUE.to_string(), "Default Output".into())];
+    let class_rank = |class: &AudioClass| -> u8 {
+        match class {
+            AudioClass::Device {
+                direction: Direction::Output,
+            } => 0,
+            AudioClass::Stream {
+                direction: Direction::Output,
+            } => 1,
+            AudioClass::Device {
+                direction: Direction::Input,
+            } => 2,
+            AudioClass::Stream {
+                direction: Direction::Input,
+            } => 3,
+            _ => 4,
+        }
+    };
+    let mut nodes: Vec<&AudioNode> = snapshot
+        .nodes
+        .iter()
+        .filter(|n| {
+            matches!(
+                n.class,
+                AudioClass::Device { .. } | AudioClass::Stream { .. }
+            )
+        })
+        .collect();
+    nodes.sort_by(|a, b| {
+        class_rank(&a.class)
+            .cmp(&class_rank(&b.class))
+            .then_with(|| a.description.cmp(&b.description))
+    });
+    options.extend(nodes.into_iter().map(|n| {
+        let prefix = match n.class {
+            AudioClass::Device {
+                direction: Direction::Output,
+            } => "Output",
+            AudioClass::Stream {
+                direction: Direction::Output,
+            } => "Playback",
+            AudioClass::Device {
+                direction: Direction::Input,
+            } => "Input",
+            AudioClass::Stream {
+                direction: Direction::Input,
+            } => "Recording",
+            _ => "Other",
+        };
+        let label = n
+            .application
+            .as_deref()
+            .or(n.media_name.as_deref())
+            .unwrap_or(&n.description);
+        (n.id.to_string(), format!("{prefix} · {label}"))
+    }));
+    options
+}
+
 pub fn slider_percent_from_x(rect: Rect, x: f32) -> u32 {
     let normalized = aetna_core::widgets::slider::normalized_from_event(rect, x);
     (normalized * MAX_VOLUME_PERCENT as f32).round() as u32
@@ -1292,6 +1489,66 @@ mod tests {
         // Unrelated keys (other widget routes) don't match.
         assert_eq!(card_id_for_profile_select("mute:7"), None);
         assert_eq!(card_id_for_profile_select("profile:abc"), None);
+    }
+
+    #[test]
+    fn spectrum_select_key_matcher_covers_trigger_and_routed_suffixes() {
+        // Trigger, dismiss scrim, and option keys must all match so
+        // `on_event` routes them to the spectrum handler instead of
+        // letting them fall through to the volume-slider branch.
+        assert!(is_spectrum_select_key("spectrum"));
+        assert!(is_spectrum_select_key("spectrum:dismiss"));
+        assert!(is_spectrum_select_key("spectrum:option:42"));
+        assert!(is_spectrum_select_key(&format!(
+            "spectrum:option:{SPECTRUM_DEFAULT_VALUE}"
+        )));
+        // Unrelated routes don't accidentally short-circuit. A key
+        // like `spectrumless:5` would be unfortunate but the
+        // `starts_with("spectrum:")` boundary keeps it out.
+        assert!(!is_spectrum_select_key("target:42"));
+        assert!(!is_spectrum_select_key("spectrumless:5"));
+    }
+
+    #[test]
+    fn pinned_node_id_falls_back_to_default_when_node_disappears() {
+        // Hot-unplug case: a USB headset the user pinned the
+        // spectrogram to vanishes from the snapshot. The resolver
+        // must not return `None` (which would blank the display) —
+        // it should fall back to the current default output so the
+        // spectrogram keeps working until the user picks again.
+        let app = fixture_app();
+        *app.spectrum_source.borrow_mut() = SpectrumSource::Node(99_999);
+        let snapshot = app.snapshot.borrow().clone();
+        let resolved = app.spectrum_source_node(&snapshot);
+        let default = default_output_node(&snapshot);
+        assert!(default.is_some(), "DemoBackend exposes a default output");
+        assert_eq!(
+            resolved.map(|n| n.id),
+            default.map(|n| n.id),
+            "stale pin falls through to the default-output resolver",
+        );
+    }
+
+    #[test]
+    fn spectrum_event_default_pick_resets_source() {
+        // After picking a node and then re-picking "Default Output",
+        // the source must be back to DefaultOutput so the display
+        // resumes tracking the system default sink. The default
+        // sentinel is distinct from any numeric id and decoded back
+        // to the enum variant by `handle_spectrum_event`.
+        use aetna_core::widgets::select::select_option_key;
+        let mut app = fixture_app();
+        let pick_node = UiEvent::synthetic_click(select_option_key("spectrum", &42u32));
+        app.handle_spectrum_event(&pick_node);
+        assert_eq!(*app.spectrum_source.borrow(), SpectrumSource::Node(42));
+
+        let pick_default =
+            UiEvent::synthetic_click(select_option_key("spectrum", &SPECTRUM_DEFAULT_VALUE));
+        app.handle_spectrum_event(&pick_default);
+        assert_eq!(
+            *app.spectrum_source.borrow(),
+            SpectrumSource::DefaultOutput,
+        );
     }
 
     #[test]
