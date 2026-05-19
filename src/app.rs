@@ -489,10 +489,7 @@ impl App for VolumeApp {
         // spectrogram card itself is shown everywhere — so we don't
         // gate this on `active_tab` the way the per-row pickers do.
         let spectrum_menu = if *self.spectrum_dropdown_open.borrow() {
-            Some(select_menu(
-                "spectrum",
-                spectrum_source_options(&snapshot),
-            ))
+            Some(select_menu("spectrum", spectrum_source_options(&snapshot)))
         } else {
             None
         };
@@ -698,8 +695,7 @@ pub(crate) fn resolve_stream_target<'a>(
     };
     let device_with_id = |id: u32| -> Option<&AudioNode> {
         snapshot.nodes.iter().find(|n| {
-            n.id == id
-                && matches!(n.class, AudioClass::Device { direction: d } if d == direction)
+            n.id == id && matches!(n.class, AudioClass::Device { direction: d } if d == direction)
         })
     };
     let default_device = || -> Option<&AudioNode> {
@@ -788,8 +784,8 @@ pub(crate) fn resolve_stream_target<'a>(
     // `tracks_default = false` so the UI doesn't claim my-source
     // will move when the default does — it won't, because session
     // policy will keep diverting it.
-    let tracks_default = following
-        && device.is_some_and(|d| default_device().is_some_and(|def| def.id == d.id));
+    let tracks_default =
+        following && device.is_some_and(|d| default_device().is_some_and(|def| def.id == d.id));
 
     StreamTarget {
         following,
@@ -1035,8 +1031,7 @@ fn node_row(
                     .muted()
                     .width(Size::Fixed(48.0)),
                 pin_slot,
-                select_trigger(format!("target:{}", node.id), label.clone())
-                    .width(Size::Fill(1.0)),
+                select_trigger(format!("target:{}", node.id), label.clone()).width(Size::Fill(1.0)),
             ])
             .gap(tokens::SPACE_2)
             .align(Align::Center)
@@ -1545,10 +1540,7 @@ mod tests {
         let pick_default =
             UiEvent::synthetic_click(select_option_key("spectrum", &SPECTRUM_DEFAULT_VALUE));
         app.handle_spectrum_event(&pick_default);
-        assert_eq!(
-            *app.spectrum_source.borrow(),
-            SpectrumSource::DefaultOutput,
-        );
+        assert_eq!(*app.spectrum_source.borrow(), SpectrumSource::DefaultOutput,);
     }
 
     #[test]
