@@ -28,12 +28,8 @@ source=(
     "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
     'LICENSE-MIT'
 )
-# The source tarball sha256 is SKIP until the v0.3.0 tag is pushed; run
-# `updpkgsums` once the tag exists to replace it with the real digest.
-sha256sums=(
-    'SKIP'
-    '9f00c7ed7074fac147074cf3440eb30099ca20ffce962d9fda4188d84bcdface'
-)
+sha256sums=('9240852e04ba87e5ff34aab84b3f5bfed2711774fbb37e62ad6189bef7528fb4'
+            '9f00c7ed7074fac147074cf3440eb30099ca20ffce962d9fda4188d84bcdface')
 
 prepare() {
     cd "$pkgname-$pkgver"
