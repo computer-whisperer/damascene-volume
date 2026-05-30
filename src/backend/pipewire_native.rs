@@ -71,12 +71,12 @@ impl PipeWireBackend {
         let snapshot_for_thread = snapshot.clone();
         let ready_for_thread = ready.clone();
         let thread = thread::Builder::new()
-            .name("aetna-volume-pipewire".into())
+            .name("damascene-volume-pipewire".into())
             .spawn(move || {
                 if let Err(err) =
                     run_backend_loop(snapshot_for_thread.clone(), commands_rx, &ready_for_thread)
                 {
-                    eprintln!("aetna-volume: PipeWire backend stopped: {err}");
+                    eprintln!("damascene-volume: PipeWire backend stopped: {err}");
                     if let Ok(mut snap) = snapshot_for_thread.lock() {
                         snap.error = Some(err.to_string());
                     }
@@ -266,7 +266,7 @@ fn run_backend_loop(
                 let device = match registry_for_bind.bind::<pw::device::Device, _>(global) {
                     Ok(device) => device,
                     Err(err) => {
-                        eprintln!("aetna-volume: failed to bind device {card_id}: {err}");
+                        eprintln!("damascene-volume: failed to bind device {card_id}: {err}");
                         return;
                     }
                 };
@@ -417,7 +417,7 @@ fn run_backend_loop(
                             });
                         }
                         Err(err) => {
-                            eprintln!("aetna-volume: failed to bind default metadata: {err}")
+                            eprintln!("damascene-volume: failed to bind default metadata: {err}")
                         }
                     }
                 }
@@ -442,7 +442,7 @@ fn run_backend_loop(
 
             if global.type_ == pw::types::ObjectType::Node {
                 if let Some(props) = global.props.as_ref()
-                    && is_internal_aetna_node(props)
+                    && is_internal_damascene_node(props)
                 {
                     return;
                 }
@@ -450,7 +450,7 @@ fn run_backend_loop(
                 let node = match registry_for_bind.bind::<pw::node::Node, _>(global) {
                     Ok(node) => node,
                     Err(err) => {
-                        eprintln!("aetna-volume: failed to bind node {node_id}: {err}");
+                        eprintln!("damascene-volume: failed to bind node {node_id}: {err}");
                         return;
                     }
                 };
@@ -613,18 +613,18 @@ struct DeviceEntry {
 
 fn apply_card_profile(devices: &HashMap<u32, DeviceEntry>, card_id: u32, profile_index: u32) {
     let Some(entry) = devices.get(&card_id) else {
-        eprintln!("aetna-volume: cannot set profile on card {card_id} — device not bound");
+        eprintln!("damascene-volume: cannot set profile on card {card_id} — device not bound");
         return;
     };
     let pod = match build_profile_pod(profile_index) {
         Ok(bytes) => bytes,
         Err(err) => {
-            eprintln!("aetna-volume: failed to build profile pod for card {card_id}: {err}");
+            eprintln!("damascene-volume: failed to build profile pod for card {card_id}: {err}");
             return;
         }
     };
     let Some(pod) = pw::spa::pod::Pod::from_bytes(&pod) else {
-        eprintln!("aetna-volume: built invalid profile pod for card {card_id}");
+        eprintln!("damascene-volume: built invalid profile pod for card {card_id}");
         return;
     };
     entry.proxy.set_param(ParamType::Profile, 0, pod);
@@ -737,7 +737,7 @@ fn apply_stream_target(
 ) {
     let Some(entry) = entry else {
         eprintln!(
-            "aetna-volume: cannot set stream target on {stream_id} — default metadata not yet bound"
+            "damascene-volume: cannot set stream target on {stream_id} — default metadata not yet bound"
         );
         return;
     };
@@ -758,7 +758,9 @@ fn apply_stream_target(
 
 fn apply_default(entry: &Option<DefaultMetaEntry>, key: &str, node_name: &str) {
     let Some(entry) = entry else {
-        eprintln!("aetna-volume: cannot set {key}={node_name} — default metadata not yet bound");
+        eprintln!(
+            "damascene-volume: cannot set {key}={node_name} — default metadata not yet bound"
+        );
         return;
     };
     // PipeWire metadata stores defaults as JSON like `{"name": "..."}`.
@@ -786,12 +788,12 @@ fn apply_mute(proxies: &HashMap<u32, NodeEntry>, node_id: u32, muted: bool) {
     )]) {
         Ok(bytes) => bytes,
         Err(err) => {
-            eprintln!("aetna-volume: failed to build mute pod for {node_id}: {err}");
+            eprintln!("damascene-volume: failed to build mute pod for {node_id}: {err}");
             return;
         }
     };
     let Some(pod) = pw::spa::pod::Pod::from_bytes(&pod) else {
-        eprintln!("aetna-volume: built invalid mute pod for {node_id}");
+        eprintln!("damascene-volume: built invalid mute pod for {node_id}");
         return;
     };
     entry.proxy.set_param(ParamType::Props, 0, pod);
@@ -822,12 +824,12 @@ fn apply_volume(
     let pod = match build_props_pod(vec![property]) {
         Ok(bytes) => bytes,
         Err(err) => {
-            eprintln!("aetna-volume: failed to build volume pod for {node_id}: {err}");
+            eprintln!("damascene-volume: failed to build volume pod for {node_id}: {err}");
             return;
         }
     };
     let Some(pod) = pw::spa::pod::Pod::from_bytes(&pod) else {
-        eprintln!("aetna-volume: built invalid volume pod for {node_id}");
+        eprintln!("damascene-volume: built invalid volume pod for {node_id}");
         return;
     };
     entry.proxy.set_param(ParamType::Props, 0, pod);
@@ -946,7 +948,7 @@ where
         return None;
     }
     let props = global.props.as_ref()?.as_ref();
-    if is_internal_aetna_node(props) {
+    if is_internal_damascene_node(props) {
         return None;
     }
     let media_class = prop(props, "media.class")?;
@@ -1037,12 +1039,12 @@ fn prop<'a>(props: &'a pw::spa::utils::dict::DictRef, key: &str) -> Option<&'a s
         .find_map(|(k, v)| if k == key { Some(v) } else { None })
 }
 
-fn is_internal_aetna_node(props: &pw::spa::utils::dict::DictRef) -> bool {
+fn is_internal_damascene_node(props: &pw::spa::utils::dict::DictRef) -> bool {
     prop(props, "node.name")
-        .map(|name| name.starts_with("aetna-volume.meter."))
+        .map(|name| name.starts_with("damascene-volume.meter."))
         .unwrap_or(false)
         || prop(props, "application.name")
-            .map(|name| name == "aetna-volume")
+            .map(|name| name == "damascene-volume")
             .unwrap_or(false)
 }
 

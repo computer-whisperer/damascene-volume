@@ -9,13 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-# aetna-volume's Cargo.toml has path dependencies on
-# ../aetna/aetna.main/crates/{aetna-core,aetna-winit-wgpu}, so every job
-# checks out aetna-volume into ./aetna-volume/ and aetna into
-# ./aetna/aetna.main/ to mirror the on-disk layout the path deps expect.
-# Cargo.lock is committed but `--locked` is not used: aetna is checked
-# out from `main` per run, so a version bump there must be allowed to
-# refresh the lockfile.
+# Dependencies (damascene-core / damascene-winit-wgpu) are consumed from
+# crates.io and pinned in the committed Cargo.lock, so all cargo invocations
+# use --locked to fail on lockfile drift.
 
 jobs:
   fmt:
@@ -23,29 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          path: aetna-volume
-      - uses: actions/checkout@v5
-        with:
-          repository: computer-whisperer/aetna
-          path: aetna/aetna.main
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
       - run: cargo fmt --check
-        working-directory: aetna-volume
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          path: aetna-volume
-      - uses: actions/checkout@v5
-        with:
-          repository: computer-whisperer/aetna
-          path: aetna/aetna.main
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -56,33 +39,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libvulkan-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libpipewire-0.3-dev
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: aetna-volume
-      - run: cargo clippy --all-targets -- -D warnings
-        working-directory: aetna-volume
+      - run: cargo clippy --all-targets --locked -- -D warnings
 
   build-test:
     name: Build + Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          path: aetna-volume
-      - uses: actions/checkout@v5
-        with:
-          repository: computer-whisperer/aetna
-          path: aetna/aetna.main
       - uses: dtolnay/rust-toolchain@stable
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libvulkan-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libpipewire-0.3-dev
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: aetna-volume
       - name: Build
-        run: cargo build --all-targets
-        working-directory: aetna-volume
+        run: cargo build --all-targets --locked
       - name: Run library tests
-        run: cargo test --lib
-        working-directory: aetna-volume
+        run: cargo test --lib --locked

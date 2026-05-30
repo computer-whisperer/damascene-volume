@@ -17,11 +17,11 @@ pub const MAX_VOLUME_PERCENT: u32 = 150;
 /// Sentinel `value` used by the per-stream target dropdown's "Default
 /// — automatic routing" entry. Must not collide with any real
 /// `node.name` (no PipeWire node ever uses this string).
-const TARGET_DEFAULT_VALUE: &str = "__aetna_default__";
+const TARGET_DEFAULT_VALUE: &str = "__damascene_default__";
 /// Sentinel `value` used by the spectrum-source dropdown's "Follow
 /// default output" entry. Distinct from the target sentinel so a stray
 /// value from one dropdown can't accidentally satisfy the other.
-const SPECTRUM_DEFAULT_VALUE: &str = "__aetna_spectrum_default__";
+const SPECTRUM_DEFAULT_VALUE: &str = "__damascene_spectrum_default__";
 const WATERFALL_WIDTH: u32 = 256;
 const WATERFALL_HEIGHT: u32 = 96;
 

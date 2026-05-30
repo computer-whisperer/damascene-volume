@@ -1,4 +1,4 @@
-use aetna_volume::backend::{AudioBackend, pipewire_native::PipeWireBackend};
+use damascene_volume::backend::{AudioBackend, pipewire_native::PipeWireBackend};
 
 fn main() {
     let backend = PipeWireBackend::new();

@@ -25,19 +25,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "aetna-volume"
-version = "0.2.3"
-dependencies = [
- "anyhow",
- "damascene-core",
- "damascene-winit-wgpu",
- "pipewire",
- "rustfft",
- "rustix 1.1.4",
- "serde",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -592,6 +579,19 @@ name = "damascene-fonts-symbols"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0d8aa98fba560c659beac4f4a798cb002bfe908c8c26c3a8eb3195ab9ee0776"
+
+[[package]]
+name = "damascene-volume"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "damascene-core",
+ "damascene-winit-wgpu",
+ "pipewire",
+ "rustfft",
+ "rustix 1.1.4",
+ "serde",
+]
 
 [[package]]
 name = "damascene-wgpu"

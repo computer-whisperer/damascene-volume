@@ -18,11 +18,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     pw::init();
 
     let target = env::args().nth(1).and_then(|arg| arg.parse::<u32>().ok());
-    let buffers_limit = env::var("AETNA_LEVEL_BUFFERS")
+    let buffers_limit = env::var("DAMASCENE_LEVEL_BUFFERS")
         .ok()
         .and_then(|value| value.parse::<u32>().ok())
         .unwrap_or(DEFAULT_BUFFERS);
-    let capture_sink = env::var("AETNA_LEVEL_CAPTURE_SINK")
+    let capture_sink = env::var("DAMASCENE_LEVEL_CAPTURE_SINK")
         .ok()
         .map(|value| value != "0" && value != "false")
         .unwrap_or(true);
@@ -32,11 +32,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let core = context.connect_rc(None)?;
 
     let mut props = properties! {
-        *pw::keys::APP_NAME => "aetna-volume-level-probe",
+        *pw::keys::APP_NAME => "damascene-volume-level-probe",
         *pw::keys::MEDIA_TYPE => "Audio",
         *pw::keys::MEDIA_CATEGORY => "Capture",
         *pw::keys::MEDIA_ROLE => "Music",
-        *pw::keys::NODE_NAME => "aetna-volume.level-probe",
+        *pw::keys::NODE_NAME => "damascene-volume.level-probe",
     };
     if capture_sink {
         props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         props.insert("target.object", target.to_string());
     }
 
-    let stream = pw::stream::StreamBox::new(&core, "aetna-volume-level-probe", props)?;
+    let stream = pw::stream::StreamBox::new(&core, "damascene-volume-level-probe", props)?;
     let data = MeterData {
         format: Default::default(),
         mainloop: mainloop.clone(),

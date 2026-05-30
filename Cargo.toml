@@ -1,9 +1,9 @@
 [package]
-name = "aetna-volume"
-version = "0.2.3"
+name = "damascene-volume"
+version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-default-run = "aetna-volume"
+default-run = "damascene-volume"
 
 [dependencies]
 damascene-core = "0.4.0"

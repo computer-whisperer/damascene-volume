@@ -1,5 +1,5 @@
-use aetna_volume::{app::VolumeApp, backend::pipewire_native::PipeWireBackend};
 use damascene_core::Rect;
+use damascene_volume::{app::VolumeApp, backend::pipewire_native::PipeWireBackend};
 use damascene_winit_wgpu::{HostConfig, run_with_config};
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // what we polish against.
     let viewport = Rect::new(0.0, 0.0, 960.0, 1080.0);
     run_with_config(
-        "Aetna Volume",
+        "Damascene Volume",
         viewport,
         VolumeApp::new(Box::new(PipeWireBackend::new())),
         // `low_latency_present` flips the surface to Mailbox so an

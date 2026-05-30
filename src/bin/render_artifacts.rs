@@ -1,4 +1,4 @@
-//! Render every tab of `aetna-volume` against the demo backend and dump
+//! Render every tab of `damascene-volume` against the demo backend and dump
 //! Damascene bundle artifacts (svg + tree + draw ops + lint) to `out/`.
 //!
 //! Run:
@@ -11,8 +11,8 @@
 
 use std::path::PathBuf;
 
-use aetna_volume::{app::VolumeApp, backend::DemoBackend, model::Tab};
 use damascene_core::{App, BuildCx, Rect, render_bundle_themed, write_bundle};
+use damascene_volume::{app::VolumeApp, backend::DemoBackend, model::Tab};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Mirror the runtime viewport (50% of a 1080p panel).

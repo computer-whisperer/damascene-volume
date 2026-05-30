@@ -241,7 +241,7 @@ fn spawn_meter(
     spectrum_nodes: Arc<Mutex<HashSet<u32>>>,
     stop: Arc<AtomicBool>,
 ) {
-    let thread_name = format!("aetna-volume-meter-{node_id}");
+    let thread_name = format!("damascene-volume-meter-{node_id}");
     thread::Builder::new()
         .name(thread_name)
         .spawn(move || {
@@ -259,7 +259,7 @@ fn spawn_meter(
                 }
             };
             if let Err(err) = result {
-                eprintln!("aetna-volume: level meter for node {node_id} stopped: {err}");
+                eprintln!("damascene-volume: level meter for node {node_id} stopped: {err}");
             }
         })
         .expect("spawn PipeWire level meter");
@@ -280,21 +280,21 @@ fn run_pipewire_auto_meter(
     let core = context.connect_rc(None)?;
 
     let mut props = properties! {
-        *pw::keys::APP_NAME => "aetna-volume",
+        *pw::keys::APP_NAME => "damascene-volume",
         *pw::keys::MEDIA_TYPE => "Audio",
         *pw::keys::MEDIA_CATEGORY => "Capture",
         // Tag ourselves as a DSP/peak-detect stream so other monitoring
         // tools (and `meter_route_for` above, if a sibling instance is
         // running) know not to attach a meter to us.
         *pw::keys::MEDIA_ROLE => "DSP",
-        *pw::keys::NODE_NAME => format!("aetna-volume.meter.{node_id}"),
+        *pw::keys::NODE_NAME => format!("damascene-volume.meter.{node_id}"),
         "target.object" => node_id.to_string(),
     };
     if capture_sink {
         props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
     }
 
-    let stream = pw::stream::StreamBox::new(&core, "aetna-volume-meter", props)?;
+    let stream = pw::stream::StreamBox::new(&core, "damascene-volume-meter", props)?;
     let data = MeterData {
         node_id,
         format: Default::default(),
@@ -313,7 +313,7 @@ fn run_pipewire_auto_meter(
         .state_changed(|_, data, _, state| {
             if let pw::stream::StreamState::Error(err) = state {
                 eprintln!(
-                    "aetna-volume: meter stream error for node {}: {err}",
+                    "damascene-volume: meter stream error for node {}: {err}",
                     data.node_id
                 );
                 data.mainloop.quit();
@@ -395,14 +395,14 @@ fn run_pipewire_linked_meter(
     let registry = core.get_registry()?;
 
     let props = properties! {
-        *pw::keys::APP_NAME => "aetna-volume",
+        *pw::keys::APP_NAME => "damascene-volume",
         *pw::keys::MEDIA_TYPE => "Audio",
         *pw::keys::MEDIA_CATEGORY => "Capture",
         *pw::keys::MEDIA_ROLE => "DSP", // see auto-meter site for rationale
-        *pw::keys::NODE_NAME => format!("aetna-volume.meter.{source_node_id}"),
+        *pw::keys::NODE_NAME => format!("damascene-volume.meter.{source_node_id}"),
     };
 
-    let stream = pw::stream::StreamBox::new(&core, "aetna-volume-meter", props)?;
+    let stream = pw::stream::StreamBox::new(&core, "damascene-volume-meter", props)?;
     let data = MeterData {
         node_id: source_node_id,
         format: Default::default(),
@@ -421,7 +421,7 @@ fn run_pipewire_linked_meter(
         .state_changed(|_, data, _, state| {
             if let pw::stream::StreamState::Error(err) = state {
                 eprintln!(
-                    "aetna-volume: meter stream error for node {}: {err}",
+                    "damascene-volume: meter stream error for node {}: {err}",
                     data.node_id
                 );
                 data.mainloop.quit();
@@ -481,7 +481,7 @@ fn run_pipewire_linked_meter(
         &mut params,
     )?;
 
-    let our_node_name = format!("aetna-volume.meter.{source_node_id}");
+    let our_node_name = format!("damascene-volume.meter.{source_node_id}");
     let linker = Rc::new(RefCell::new(LinkerState::default()));
     let core_for_global = core.clone();
     let linker_for_global = linker.clone();
@@ -602,7 +602,7 @@ fn try_link(core: &pw::core::CoreRc, state: &mut LinkerState, source_node_id: u3
                 state.links.insert(pair, link);
             }
             Err(err) => eprintln!(
-                "aetna-volume: failed to link {source_node_id}:{output_port} -> \
+                "damascene-volume: failed to link {source_node_id}:{output_port} -> \
                  {our_node_id}:{input_port}: {err}"
             ),
         }
