@@ -1,6 +1,6 @@
-use aetna_core::Rect;
 use aetna_volume::{app::VolumeApp, backend::pipewire_native::PipeWireBackend};
-use aetna_winit_wgpu::{HostConfig, run_with_config};
+use damascene_core::Rect;
+use damascene_winit_wgpu::{HostConfig, run_with_config};
 use std::time::Duration;
 
 const METER_FRAME_INTERVAL: Duration = Duration::from_millis(33);

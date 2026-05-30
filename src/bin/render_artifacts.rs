@@ -1,5 +1,5 @@
 //! Render every tab of `aetna-volume` against the demo backend and dump
-//! Aetna bundle artifacts (svg + tree + draw ops + lint) to `out/`.
+//! Damascene bundle artifacts (svg + tree + draw ops + lint) to `out/`.
 //!
 //! Run:
 //!   cargo run --bin render_artifacts
@@ -11,8 +11,8 @@
 
 use std::path::PathBuf;
 
-use aetna_core::{App, BuildCx, Rect, render_bundle_themed, write_bundle};
 use aetna_volume::{app::VolumeApp, backend::DemoBackend, model::Tab};
+use damascene_core::{App, BuildCx, Rect, render_bundle_themed, write_bundle};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Mirror the runtime viewport (50% of a 1080p panel).

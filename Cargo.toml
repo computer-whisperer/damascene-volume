@@ -6,8 +6,8 @@ license = "MIT OR Apache-2.0"
 default-run = "aetna-volume"
 
 [dependencies]
-aetna-core = "0.3.6"
-aetna-winit-wgpu = "0.3.6"
+damascene-core = "0.4.0"
+damascene-winit-wgpu = "0.4.0"
 anyhow = "1"
 pipewire = "0.9.2"
 rustfft = "6.2"

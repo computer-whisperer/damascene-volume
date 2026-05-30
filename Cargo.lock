@@ -25,106 +25,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "aetna-core"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80782adf8ff745d676eab958c0c3ae498746a9ff9dd46f5975e6ede2b24db344"
-dependencies = [
- "aetna-fonts",
- "bytemuck",
- "cosmic-text",
- "fdsm",
- "fdsm-ttf-parser",
- "image",
- "kurbo",
- "lru",
- "lyon_tessellation",
- "nalgebra",
- "roxmltree 0.21.1",
- "rustc-hash 2.1.2",
- "swash",
- "ttf-parser",
- "usvg",
- "web-time",
-]
-
-[[package]]
-name = "aetna-fonts"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b945041afe0413409bc3a6fc7b37688a95406951114d63df780788ad3ede03b1"
-dependencies = [
- "aetna-fonts-emoji",
- "aetna-fonts-inter",
- "aetna-fonts-jetbrains-mono",
- "aetna-fonts-symbols",
-]
-
-[[package]]
-name = "aetna-fonts-emoji"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e25a2ffb1e54e79ffb17195a655c719ca403dd50b2deac0890f7f7e0486e898"
-
-[[package]]
-name = "aetna-fonts-inter"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b8d860e8cf47e60287672af29067f62bed9e22c3c61fbd6edc1be1dbe04ed37"
-
-[[package]]
-name = "aetna-fonts-jetbrains-mono"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6077bd29feff1fc06674708af01c03b41a1d6228797cf4b2934f7064087c9f4d"
-
-[[package]]
-name = "aetna-fonts-symbols"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1af44d458ac64fdf6374444de07b5d13a79bb478da01258d965142f0a86e9cc9"
-
-[[package]]
 name = "aetna-volume"
 version = "0.2.3"
 dependencies = [
- "aetna-core",
- "aetna-winit-wgpu",
  "anyhow",
+ "damascene-core",
+ "damascene-winit-wgpu",
  "pipewire",
  "rustfft",
  "rustix 1.1.4",
  "serde",
-]
-
-[[package]]
-name = "aetna-wgpu"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b8a08274aa9bb7c656ec5770299ffc67b4d5064d96a91e3fc92921b7839b0ae"
-dependencies = [
- "aetna-core",
- "bytemuck",
- "cosmic-text",
- "ttf-parser",
- "web-time",
- "wgpu",
-]
-
-[[package]]
-name = "aetna-winit-wgpu"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a55559f525d24062a4607d3de891988289aa56f99c6f6af06e6483a3ebd53b13"
-dependencies = [
- "aetna-core",
- "aetna-wgpu",
- "arboard",
- "jni",
- "open",
- "pollster",
- "wgpu",
- "winit",
 ]
 
 [[package]]
@@ -623,6 +533,103 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
+name = "damascene-core"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2237abad896eb8f5686aa813234aae17852428b84be1ad7dfd5153d2b98993dd"
+dependencies = [
+ "bytemuck",
+ "cosmic-text",
+ "damascene-fonts",
+ "fdsm",
+ "fdsm-ttf-parser",
+ "glam 0.33.0",
+ "image",
+ "kurbo",
+ "lru",
+ "lyon_tessellation",
+ "nalgebra",
+ "roxmltree 0.21.1",
+ "rustc-hash 2.1.2",
+ "swash",
+ "ttf-parser",
+ "usvg",
+ "web-time",
+]
+
+[[package]]
+name = "damascene-fonts"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d1ae6d4b14318d45ad4bf15b6bf63ce99e5aca8bdf27f556a7e7346e8d60859"
+dependencies = [
+ "damascene-fonts-emoji",
+ "damascene-fonts-inter",
+ "damascene-fonts-jetbrains-mono",
+ "damascene-fonts-symbols",
+]
+
+[[package]]
+name = "damascene-fonts-emoji"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae1de66882e6a31d3e40da0494c558b80f24bf07cf0a7900ddf442a7eefa5434"
+
+[[package]]
+name = "damascene-fonts-inter"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d084c112dab32387b62226e862f0c13fda21b380da54abdb2cc7a35ec22fffe"
+
+[[package]]
+name = "damascene-fonts-jetbrains-mono"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfd4c719004dc049baa73e4e869cca40c02532f5327ac118b3bb4fcc43a57cdc"
+
+[[package]]
+name = "damascene-fonts-symbols"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0d8aa98fba560c659beac4f4a798cb002bfe908c8c26c3a8eb3195ab9ee0776"
+
+[[package]]
+name = "damascene-wgpu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4811feeed890a48d713ce8b17cd516a36943186a0f538aeddefc53e15e0ef7d2"
+dependencies = [
+ "bytemuck",
+ "cosmic-text",
+ "damascene-core",
+ "ttf-parser",
+ "web-time",
+ "wgpu",
+]
+
+[[package]]
+name = "damascene-winit-wgpu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aff93d90a89e74c82d9a27db63c23188c9d14afb5cb33a0ec5d24fd9881e4426"
+dependencies = [
+ "arboard",
+ "damascene-core",
+ "damascene-wgpu",
+ "dlib",
+ "jni",
+ "open",
+ "pollster",
+ "raw-window-handle",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-sys",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "data-url"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1018,6 +1025,12 @@ name = "glam"
 version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f70749695b063ecbf6b62949ccccde2e733ec3ecbbd71d467dca4e5c6c97cca0"
+
+[[package]]
+name = "glam"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fb167719045debebe9f532320accc7b5c993c5a3b813f5696a11d5ca7bdc57b"
 
 [[package]]
 name = "glob"

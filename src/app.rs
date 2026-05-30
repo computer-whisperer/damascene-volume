@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use aetna_core::prelude::{Image, ImageFit, image};
-use aetna_core::*;
+use damascene_core::prelude::{Image, ImageFit, image};
+use damascene_core::*;
 
 use crate::backend::AudioBackend;
 use crate::levels::{LevelService, NodeLevels, SpectrumSnapshot};
@@ -25,7 +25,7 @@ const SPECTRUM_DEFAULT_VALUE: &str = "__aetna_spectrum_default__";
 const WATERFALL_WIDTH: u32 = 256;
 const WATERFALL_HEIGHT: u32 = 96;
 
-/// App branding mark shown in the header. Gradients render via Aetna's
+/// App branding mark shown in the header. Gradients render via Damascene's
 /// per-vertex colour bake so the authored linear/radial gradients land
 /// as drawn; SVG filters (feDropShadow on this asset) are silently
 /// dropped, which is fine — it's just the soft shadow under the knob.
@@ -225,7 +225,7 @@ impl VolumeApp {
             self.percent_for(node)
         };
         let mut normalized = current_pct as f32 / 150.0;
-        if aetna_core::widgets::slider::apply_event(
+        if damascene_core::widgets::slider::apply_event(
             &mut normalized,
             event,
             key,
@@ -258,7 +258,7 @@ impl VolumeApp {
 
     fn handle_target_event(&mut self, event: &UiEvent, stream_id: u32) {
         let key = format!("target:{stream_id}");
-        let Some(action) = aetna_core::widgets::select::classify_event(event, &key) else {
+        let Some(action) = damascene_core::widgets::select::classify_event(event, &key) else {
             return;
         };
         match action {
@@ -300,7 +300,8 @@ impl VolumeApp {
     }
 
     fn handle_spectrum_event(&mut self, event: &UiEvent) {
-        let Some(action) = aetna_core::widgets::select::classify_event(event, "spectrum") else {
+        let Some(action) = damascene_core::widgets::select::classify_event(event, "spectrum")
+        else {
             return;
         };
         match action {
@@ -334,7 +335,7 @@ impl VolumeApp {
 
     fn handle_profile_event(&mut self, event: &UiEvent, card_id: u32) {
         let key = format!("profile:{card_id}");
-        let Some(action) = aetna_core::widgets::select::classify_event(event, &key) else {
+        let Some(action) = damascene_core::widgets::select::classify_event(event, &key) else {
             return;
         };
         match action {
@@ -422,7 +423,7 @@ impl App for VolumeApp {
         .height(Size::Fill(1.0));
 
         // Profile select dropdown — popovers compose at the root of the
-        // El tree (see aetna_core widgets::popover docs), so the menu
+        // El tree (see damascene_core widgets::popover docs), so the menu
         // for whichever card is currently open is a sibling of the main
         // column. Only the configuration tab can open one, and only one
         // can be open at a time.
@@ -502,7 +503,7 @@ impl App for VolumeApp {
         // and the `{key}:tab:{value}` route shape, so it can run ahead
         // of the per-key dispatch below without conflicting with the
         // other prefixes (`mute:`, `volume:`, `profile:`, …).
-        if aetna_core::widgets::tabs::apply_event(
+        if damascene_core::widgets::tabs::apply_event(
             &mut self.active_tab,
             &event,
             "tabs",
@@ -1214,7 +1215,7 @@ fn meter_bar(peak: f32, rms: f32, muted: bool) -> El {
             .fill(tokens::MUTED)
             .radius(tokens::RADIUS_PILL),
         El::new(Kind::Custom("activity-rms"))
-            .fill(fill.with_alpha(70))
+            .fill(fill.with_alpha_u8(70))
             .radius(tokens::RADIUS_PILL),
         El::new(Kind::Custom("activity-peak"))
             .fill(fill)
@@ -1249,7 +1250,7 @@ fn node_id_from_key(key: &str, prefix: &str) -> Option<u32> {
 /// and pull the card id out so the routed event can be dispatched
 /// against the controlled select with a card-scoped key. Decoding the
 /// routed action is left to
-/// [`aetna_core::widgets::select::classify_event`].
+/// [`damascene_core::widgets::select::classify_event`].
 fn card_id_for_profile_select(key: &str) -> Option<u32> {
     let rest = key.strip_prefix("profile:")?;
     rest.split(':').next()?.parse().ok()
@@ -1360,7 +1361,7 @@ fn spectrum_source_options(snapshot: &AudioSnapshot) -> Vec<(String, String)> {
 }
 
 pub fn slider_percent_from_x(rect: Rect, x: f32) -> u32 {
-    let normalized = aetna_core::widgets::slider::normalized_from_event(rect, x);
+    let normalized = damascene_core::widgets::slider::normalized_from_event(rect, x);
     (normalized * MAX_VOLUME_PERCENT as f32).round() as u32
 }
 
@@ -1422,7 +1423,7 @@ mod tests {
 
     #[test]
     fn slider_percent_tracks_thumb_center() {
-        use aetna_core::widgets::slider::THUMB_SIZE;
+        use damascene_core::widgets::slider::THUMB_SIZE;
         let rect = Rect::new(10.0, 20.0, 220.0, 18.0);
         let left = rect.x + THUMB_SIZE * 0.5;
         let usable = rect.w - THUMB_SIZE;
@@ -1531,7 +1532,7 @@ mod tests {
         // resumes tracking the system default sink. The default
         // sentinel is distinct from any numeric id and decoded back
         // to the enum variant by `handle_spectrum_event`.
-        use aetna_core::widgets::select::select_option_key;
+        use damascene_core::widgets::select::select_option_key;
         let mut app = fixture_app();
         let pick_node = UiEvent::synthetic_click(select_option_key("spectrum", &42u32));
         app.handle_spectrum_event(&pick_node);
