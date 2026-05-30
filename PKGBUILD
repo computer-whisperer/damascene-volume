@@ -1,11 +1,11 @@
 # Maintainer: Christian Balcom <robot.inventor@gmail.com>
 
-pkgname=aetna-volume
-pkgver=0.2.3
+pkgname=damascene-volume
+pkgver=0.3.0
 pkgrel=1
-pkgdesc='PipeWire volume control panel built with Aetna'
+pkgdesc='PipeWire volume control panel built with Damascene'
 arch=('x86_64')
-url='https://github.com/computer-whisperer/aetna-volume'
+url='https://github.com/computer-whisperer/damascene-volume'
 license=('MIT OR Apache-2.0')
 depends=(
     'libpipewire'
@@ -28,8 +28,10 @@ source=(
     "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
     'LICENSE-MIT'
 )
+# The source tarball sha256 is SKIP until the v0.3.0 tag is pushed; run
+# `updpkgsums` once the tag exists to replace it with the real digest.
 sha256sums=(
-    '0b5c4c0b0d7630807935545b3cf539ce5ee0081b12340b79a38719a6f8eb289d'
+    'SKIP'
     '9f00c7ed7074fac147074cf3440eb30099ca20ffce962d9fda4188d84bcdface'
 )
 
@@ -43,7 +45,7 @@ build() {
     cd "$pkgname-$pkgver"
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
-    cargo build --release --frozen --bin aetna-volume
+    cargo build --release --frozen --bin damascene-volume
 }
 
 check() {
@@ -54,15 +56,15 @@ check() {
 
 package() {
     cd "$pkgname-$pkgver"
-    install -Dm755 "target/release/aetna-volume" "$pkgdir/usr/bin/aetna-volume"
+    install -Dm755 "target/release/damascene-volume" "$pkgdir/usr/bin/damascene-volume"
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
-    install -Dm644 aetna-volume.desktop \
-        "$pkgdir/usr/share/applications/aetna-volume.desktop"
-    # Scalable hicolor icon — `Icon=aetna-volume` in the .desktop entry
+    install -Dm644 damascene-volume.desktop \
+        "$pkgdir/usr/share/applications/damascene-volume.desktop"
+    # Scalable hicolor icon — `Icon=damascene-volume` in the .desktop entry
     # resolves here. Renaming on install so the icon name is stable
     # regardless of the source filename.
     install -Dm644 icon.svg \
-        "$pkgdir/usr/share/icons/hicolor/scalable/apps/aetna-volume.svg"
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/damascene-volume.svg"
     install -Dm644 "$srcdir/LICENSE-MIT" \
         "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
 }

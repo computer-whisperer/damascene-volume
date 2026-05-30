@@ -1,6 +1,6 @@
 # Pavucontrol Coverage Target
 
-This is the functional target for `aetna-volume`. The app should eventually
+This is the functional target for `damascene-volume`. The app should eventually
 cover these pavucontrol workflows, using native PipeWire object concepts where
 possible rather than pretending PipeWire is PulseAudio.
 

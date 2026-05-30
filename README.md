@@ -1,12 +1,12 @@
 <h1>
   <img src="icon.svg" alt="" width="48" height="48" align="left" />
-  Aetna Volume
+  Damascene Volume
 </h1>
 
-A PipeWire volume control panel built with Aetna.
+A PipeWire volume control panel built with Damascene.
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="Aetna Volume — Playback tab" width="640" />
+  <img src="assets/screenshot.png" alt="Damascene Volume — Playback tab" width="640" />
 </p>
 
 The goal is to replace the day-to-day pavucontrol workflow with a native
@@ -20,7 +20,7 @@ PipeWire-first utility:
 - mute, volume, default-device, and stream-routing controls
 
 This project intentionally starts as a separate consumer app rather than another
-demo inside the Aetna repository. It should pressure-test Aetna against a real,
+demo inside the Damascene repository. It should pressure-test Damascene against a real,
 dense, always-useful desktop tool.
 
 ## Early Shape
@@ -33,12 +33,12 @@ we can name PipeWire objects and routes correctly.
 cargo run
 ```
 
-Aetna is consumed from crates.io (currently `aetna-core`/`aetna-winit-wgpu` 0.3.3).
+Damascene is consumed from crates.io (currently `damascene-core`/`damascene-winit-wgpu` 0.4.0).
 
 ## Arch package
 
 An AUR-oriented `PKGBUILD` is provided for tagged releases. It installs the
-`aetna-volume` binary, a hicolor scalable app icon
-(`/usr/share/icons/hicolor/scalable/apps/aetna-volume.svg`), and a `.desktop`
+`damascene-volume` binary, a hicolor scalable app icon
+(`/usr/share/icons/hicolor/scalable/apps/damascene-volume.svg`), and a `.desktop`
 entry that lands under `AudioVideo → Audio → Mixer` so the launcher picks it up
 without a logout.

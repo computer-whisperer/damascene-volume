@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Aetna Volume
+Name=Damascene Volume
 GenericName=Volume Control
 Comment=PipeWire volume control panel
-Exec=aetna-volume
-Icon=aetna-volume
+Exec=damascene-volume
+Icon=damascene-volume
 Terminal=false
 Categories=AudioVideo;Audio;Mixer;
 Keywords=audio;sound;volume;mixer;pipewire;wireplumber;
-StartupWMClass=aetna-volume
+StartupWMClass=damascene-volume
