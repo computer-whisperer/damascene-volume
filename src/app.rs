@@ -498,7 +498,7 @@ impl App for VolumeApp {
         overlays(main, [profile_menu, target_menu, spectrum_menu]).fill_size()
     }
 
-    fn on_event(&mut self, event: UiEvent) {
+    fn on_event(&mut self, event: UiEvent, _cx: &EventCx) {
         // Tabs row first — `tabs::apply_event` filters on Click/Activate
         // and the `{key}:tab:{value}` route shape, so it can run ahead
         // of the per-key dispatch below without conflicting with the
