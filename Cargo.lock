@@ -583,7 +583,7 @@ checksum = "e0d8aa98fba560c659beac4f4a798cb002bfe908c8c26c3a8eb3195ab9ee0776"
 
 [[package]]
 name = "damascene-volume"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "damascene-core",
