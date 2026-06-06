@@ -608,11 +608,10 @@ fn node_panel(nodes: Vec<&AudioNode>, tab: Tab, app: &VolumeApp) -> El {
             .collect()
     };
 
-    column([
-        panel_title(tab.label(), tab_subtitle(tab)),
-        scroll(rows).key("node-list").height(Size::Fill(1.0)),
-    ])
-    .gap(tokens::SPACE_3)
+    scroll(rows)
+        .gap(tokens::SPACE_2)
+        .key("node-list")
+        .height(Size::Fill(1.0))
 }
 
 /// Resolved routing state for a stream's target dropdown trigger.
@@ -795,16 +794,6 @@ pub(crate) fn resolve_stream_target<'a>(
     }
 }
 
-fn tab_subtitle(tab: Tab) -> &'static str {
-    match tab {
-        Tab::Playback => "Apps sending audio to a sink.",
-        Tab::Recording => "Apps capturing audio from a source.",
-        Tab::Outputs => "Audio sinks — speakers, headphones, virtual outputs.",
-        Tab::Inputs => "Audio sources — microphones, line-in, virtual inputs.",
-        Tab::Configuration => "Cards, profiles, and ports.",
-    }
-}
-
 fn default_output_node(snapshot: &AudioSnapshot) -> Option<&AudioNode> {
     snapshot.nodes.iter().find(|node| {
         snapshot.default_sink_name.as_deref() == Some(node.name.as_str())
@@ -979,17 +968,10 @@ fn configuration_panel(cards: &[AudioCard], app: &VolumeApp) -> El {
             .collect()
     };
 
-    column([
-        panel_title(Tab::Configuration.label(), tab_subtitle(Tab::Configuration)),
-        scroll(rows).key("cards").height(Size::Fill(1.0)),
-    ])
-    .gap(tokens::SPACE_3)
-}
-
-fn panel_title(title: &'static str, subtitle: &'static str) -> El {
-    column([h2(title), text(subtitle).muted().caption()])
-        .gap(tokens::SPACE_1)
-        .width(Size::Fill(1.0))
+    scroll(rows)
+        .gap(tokens::SPACE_2)
+        .key("cards")
+        .height(Size::Fill(1.0))
 }
 
 fn node_row(
