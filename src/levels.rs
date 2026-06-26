@@ -192,14 +192,22 @@ struct MeterData {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MeterRoute {
-    /// Capture path that lets WirePlumber's policy auto-link us to a sink
-    /// monitor or a real source. Used for output devices, input devices,
-    /// and input streams.
-    AutoConnect { capture_sink: bool },
+    /// Capture path that lets WirePlumber's policy auto-link us to a real
+    /// source. Used for input devices (pinned to their source via
+    /// `target.object`) and input streams (which have no output ports of
+    /// their own, so the meter falls through to the default source).
+    AutoConnect,
     /// Capture path that bypasses WirePlumber and creates explicit
-    /// port-to-port links from the source node's outputs to our inputs.
-    /// Required for output streams, which the session manager will not
-    /// expose as a normal capture target.
+    /// port-to-port links from the target node's output-direction ports
+    /// to our inputs. Used for output streams (their outputs) and output
+    /// devices (their monitor ports).
+    ///
+    /// Output devices *must* use this rather than autoconnect: a
+    /// `stream.capture.sink` autoconnect treats `target.object` as a hint,
+    /// not a pin, so when the intended sink is suspended WirePlumber falls
+    /// back to linking us to the *default* sink's monitor. Several idle
+    /// sinks then all meter the default sink's audio. Explicit links can't
+    /// drift — we name both ports ourselves.
     LinkFromOutputs,
 }
 
@@ -215,20 +223,16 @@ fn meter_route_for(node: &AudioNode) -> Option<MeterRoute> {
     match node.class {
         AudioClass::Device {
             direction: Direction::Output,
-        } => Some(MeterRoute::AutoConnect { capture_sink: true }),
+        } => Some(MeterRoute::LinkFromOutputs),
         AudioClass::Device {
             direction: Direction::Input,
-        } => Some(MeterRoute::AutoConnect {
-            capture_sink: false,
-        }),
+        } => Some(MeterRoute::AutoConnect),
         AudioClass::Stream {
             direction: Direction::Output,
         } => Some(MeterRoute::LinkFromOutputs),
         AudioClass::Stream {
             direction: Direction::Input,
-        } => Some(MeterRoute::AutoConnect {
-            capture_sink: false,
-        }),
+        } => Some(MeterRoute::AutoConnect),
         _ => None,
     }
 }
@@ -246,14 +250,9 @@ fn spawn_meter(
         .name(thread_name)
         .spawn(move || {
             let result = match route {
-                MeterRoute::AutoConnect { capture_sink } => run_pipewire_auto_meter(
-                    node_id,
-                    capture_sink,
-                    levels,
-                    spectra,
-                    spectrum_nodes,
-                    stop,
-                ),
+                MeterRoute::AutoConnect => {
+                    run_pipewire_auto_meter(node_id, levels, spectra, spectrum_nodes, stop)
+                }
                 MeterRoute::LinkFromOutputs => {
                     run_pipewire_linked_meter(node_id, levels, spectra, spectrum_nodes, stop)
                 }
@@ -267,7 +266,6 @@ fn spawn_meter(
 
 fn run_pipewire_auto_meter(
     node_id: u32,
-    capture_sink: bool,
     levels: Arc<Mutex<HashMap<u32, NodeLevels>>>,
     spectra: Arc<Mutex<HashMap<u32, SpectrumSnapshot>>>,
     spectrum_nodes: Arc<Mutex<HashSet<u32>>>,
@@ -279,7 +277,13 @@ fn run_pipewire_auto_meter(
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(None)?;
 
-    let mut props = properties! {
+    // Input devices pin to their source via `target.object`; input
+    // streams have no capturable port of their own, so WirePlumber lands
+    // us on the default source. Either way this path captures a real
+    // source, where autoconnect honours the channel layout (mono mics
+    // meter as a single channel). Output *devices* deliberately do not
+    // come through here — see `MeterRoute::LinkFromOutputs`.
+    let props = properties! {
         *pw::keys::APP_NAME => "damascene-volume",
         *pw::keys::MEDIA_TYPE => "Audio",
         *pw::keys::MEDIA_CATEGORY => "Capture",
@@ -290,9 +294,6 @@ fn run_pipewire_auto_meter(
         *pw::keys::NODE_NAME => format!("damascene-volume.meter.{node_id}"),
         "target.object" => node_id.to_string(),
     };
-    if capture_sink {
-        props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
-    }
 
     let stream = pw::stream::StreamBox::new(&core, "damascene-volume-meter", props)?;
     let data = MeterData {
@@ -371,15 +372,25 @@ fn run_pipewire_auto_meter(
     Ok(())
 }
 
-/// Capture an output stream by creating explicit pw_link objects from
-/// the source stream's output ports to our capture stream's input ports.
+/// Capture a node by creating explicit pw_link objects from its
+/// output-direction ports to our capture stream's input ports. For an
+/// output stream those are the stream's outputs; for an output device
+/// (sink) they are the sink's `monitor_*` ports.
 ///
-/// The session manager (WirePlumber) will not honour `target.object`
-/// pointed at a `Stream/Output/Audio` node — capture clients with no
-/// recognised target fall back to the default source (the user's mic).
-/// To monitor a single stream we open a capture without `AUTOCONNECT`,
-/// watch the registry until both sides have ports, then construct
-/// link-factory objects for each output→input pair.
+/// This bypasses WirePlumber's autoconnect policy entirely, which both
+/// node kinds need:
+/// - The session manager will not honour `target.object` pointed at a
+///   `Stream/Output/Audio` node — such captures fall back to the default
+///   source (the user's mic).
+/// - A `stream.capture.sink` autoconnect treats `target.object` as a
+///   hint; when the intended sink is suspended it silently relinks to the
+///   *default* sink's monitor, so every idle sink ends up metering the
+///   default sink's audio.
+///
+/// We open a capture without `AUTOCONNECT`, watch the registry until both
+/// sides have ports, then construct link-factory objects for each
+/// output→input pair — links we name ourselves and that therefore cannot
+/// drift to another node.
 fn run_pipewire_linked_meter(
     source_node_id: u32,
     levels: Arc<Mutex<HashMap<u32, NodeLevels>>>,
@@ -901,7 +912,12 @@ mod tests {
     }
 
     #[test]
-    fn routes_use_sink_mix_only_for_output_devices() {
+    fn outputs_link_explicitly_and_inputs_autoconnect() {
+        // Output devices and output streams are tapped via explicit
+        // port links so a suspended sink can't make us drift onto the
+        // default sink's monitor. Input devices/streams stay on
+        // autoconnect, which captures a real source with its native
+        // channel layout.
         let output_device = test_node(AudioClass::Device {
             direction: Direction::Output,
         });
@@ -911,20 +927,19 @@ mod tests {
         let input_device = test_node(AudioClass::Device {
             direction: Direction::Input,
         });
+        let input_stream = test_node(AudioClass::Stream {
+            direction: Direction::Input,
+        });
         assert_eq!(
             meter_route_for(&output_device),
-            Some(MeterRoute::AutoConnect { capture_sink: true })
+            Some(MeterRoute::LinkFromOutputs)
         );
         assert_eq!(
             meter_route_for(&output_stream),
             Some(MeterRoute::LinkFromOutputs)
         );
-        assert_eq!(
-            meter_route_for(&input_device),
-            Some(MeterRoute::AutoConnect {
-                capture_sink: false
-            })
-        );
+        assert_eq!(meter_route_for(&input_device), Some(MeterRoute::AutoConnect));
+        assert_eq!(meter_route_for(&input_stream), Some(MeterRoute::AutoConnect));
     }
 
     fn test_node(class: AudioClass) -> AudioNode {
