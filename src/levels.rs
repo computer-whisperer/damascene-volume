@@ -938,8 +938,14 @@ mod tests {
             meter_route_for(&output_stream),
             Some(MeterRoute::LinkFromOutputs)
         );
-        assert_eq!(meter_route_for(&input_device), Some(MeterRoute::AutoConnect));
-        assert_eq!(meter_route_for(&input_stream), Some(MeterRoute::AutoConnect));
+        assert_eq!(
+            meter_route_for(&input_device),
+            Some(MeterRoute::AutoConnect)
+        );
+        assert_eq!(
+            meter_route_for(&input_stream),
+            Some(MeterRoute::AutoConnect)
+        );
     }
 
     fn test_node(class: AudioClass) -> AudioNode {
