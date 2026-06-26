@@ -1141,7 +1141,7 @@ fn volume_slider(id: u32, percent: u32, muted: bool) -> El {
         tokens::PRIMARY
     };
     let normalized = (percent as f32 / MAX_VOLUME_PERCENT as f32).clamp(0.0, 1.0);
-    slider(normalized, fill).key(format!("volume:{id}"))
+    damascene_core::widgets::slider::slider_with_color(format!("volume:{id}"), normalized, fill)
 }
 
 fn activity_meter(levels: Option<&NodeLevels>, muted: bool) -> El {
